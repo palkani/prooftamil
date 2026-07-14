@@ -47,9 +47,11 @@ type Config struct {
 
 	// Cascade tuning
 	ModelRouterConfig           string
+	ModelTimeout                time.Duration
+	FallbackTrigger             string
+	Tier1Only                   bool
 	SemanticSimilarityThreshold float64
 	CacheTTL                    time.Duration
-	HedgeDelay                  time.Duration
 	ConfidenceGate              float64
 
 	// Ops
@@ -91,6 +93,12 @@ func Load() (*Config, error) {
 		GeminiModel:   env("GEMINI_MODEL", "gemini-2.5-flash"),
 
 		ModelRouterConfig: env("MODEL_ROUTER_CONFIG", "{}"),
+		// §8.6 — the fallback is failover, not a latency hedge. Sarvam is ~8x slower
+		// than Gemini, so racing it could never win; it would only double the spend.
+		FallbackTrigger: env("FALLBACK_TRIGGER", "on_error"),
+		// §8.5 — force the safe degraded path: deterministic Tier 1 only, no model can
+		// surface a hallucinated fix. A flag, so it can be flipped without a redeploy.
+		Tier1Only: env("TIER1_ONLY", "false") == "true",
 
 		SentryDSN:    os.Getenv("SENTRY_DSN"),
 		OTELEndpoint: os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
@@ -105,14 +113,10 @@ func Load() (*Config, error) {
 	if c.JWTRefreshTTL, err = envDuration("JWT_REFRESH_TTL", "168h"); err != nil {
 		errs = append(errs, err.Error())
 	}
-	// 2500ms, not the plan's 800ms.
-	//
-	// The hedge should fire only on a genuine tail event. Measured live, the primary
-	// (Gemini, thinking off) has p50 946ms and a 1210ms tail — so an 800ms hedge
-	// would fire on roughly HALF of all requests, doubling model spend. Worse, it
-	// would race in Sarvam, which is ~8x slower, so the hedge could not even win.
-	// 2500ms sits comfortably beyond the primary's tail.
-	if c.HedgeDelay, err = envDurationMS("HEDGE_DELAY_MS", 2500); err != nil {
+	// §8.6 — MODEL_TIMEOUT_MS replaces the old HEDGE_DELAY_MS entirely. Past this the
+	// primary is treated as FAILED and the fallback takes over. 6s sits far above the
+	// primary's measured tail (1.2s), so a merely slow-but-alive call is not discarded.
+	if c.ModelTimeout, err = envDurationMS("MODEL_TIMEOUT_MS", 6000); err != nil {
 		errs = append(errs, err.Error())
 	}
 	if c.CacheTTL, err = envDurationSec("CACHE_TTL_SECONDS", 604800); err != nil {

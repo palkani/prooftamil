@@ -70,11 +70,28 @@ type Verdict struct {
 // quotes the substring; validate() locates it and derives the offsets, which is
 // exact by construction.
 type rawSuggestion struct {
-	Original    string  `json:"original"`
-	Suggestion  string  `json:"suggestion"`
+	// Quote is the exact substring to change, copied verbatim from the target.
+	// `original` is accepted as an alias so prompt v2 responses still parse.
+	Quote      string `json:"quote"`
+	Original   string `json:"original"`
+	Suggestion string `json:"suggestion"`
+
+	// QuoteContext disambiguates a quote that appears more than once (§8.4): a few
+	// characters from around the intended occurrence. Without it, a repeated word is
+	// unresolvable and we must NOT guess — see resolveSpan.
+	QuoteContext string `json:"quote_context"`
+
 	Type        string  `json:"type"`
 	Explanation string  `json:"explanation"`
 	Confidence  float64 `json:"confidence"`
+}
+
+// text returns the quoted substring, tolerating either field name.
+func (r rawSuggestion) text() string {
+	if r.Quote != "" {
+		return r.Quote
+	}
+	return r.Original
 }
 
 type rawResponse struct {
@@ -115,26 +132,27 @@ func validate(raw rawResponse, target string, tier cascade.Tier) ([]cascade.Sugg
 	taken := make([]bool, len(runes))
 
 	for _, r := range raw.Suggestions {
+		quote := r.text()
+
 		if !validTypes[r.Type] {
 			continue
 		}
 		if r.Confidence < 0 || r.Confidence > 1 {
 			continue
 		}
-		if r.Original == "" || !utf8.ValidString(r.Suggestion) {
+		if quote == "" || !utf8.ValidString(r.Suggestion) {
 			continue
 		}
 
 		// A "correction" that changes nothing is noise in the UI.
-		if strings.TrimSpace(r.Suggestion) == "" || r.Suggestion == r.Original {
+		if strings.TrimSpace(r.Suggestion) == "" || r.Suggestion == quote {
 			continue
 		}
 
-		// THE ANCHOR. The model quoted a substring; find it. If it is not there
-		// verbatim, the model invented it — it hallucinated, paraphrased, or (seen
-		// live from Sarvam) answered in English. Either way it must not touch the
-		// writer's document.
-		start, end, ok := locate(runes, []rune(r.Original), taken)
+		// THE ANCHOR. The model quoted a substring; the SERVER finds it. If it is not
+		// there verbatim, the model invented it — hallucinated, paraphrased, or (seen
+		// live from Sarvam) answered in English. It must not touch the writer's text.
+		start, end, ok := resolveSpan(runes, []rune(quote), r.QuoteContext, taken)
 		if !ok {
 			continue
 		}
@@ -145,7 +163,7 @@ func validate(raw rawResponse, target string, tier cascade.Tier) ([]cascade.Sugg
 		out = append(out, cascade.Suggestion{
 			Start:       start,
 			End:         end,
-			Original:    r.Original,
+			Original:    quote,
 			Suggestion:  r.Suggestion,
 			Type:        r.Type,
 			Explanation: r.Explanation,
@@ -160,17 +178,33 @@ func validate(raw rawResponse, target string, tier cascade.Tier) ([]cascade.Sugg
 	return out, nil
 }
 
-// locate finds the first occurrence of `needle` in `hay` that does not overlap a
-// span already claimed by an earlier suggestion.
+// resolveSpan locates the model's quote in the target and derives its offsets (§8.4).
 //
-// Offsets are computed HERE rather than taken from the model, because the model
-// cannot count characters — prompt v1 proved it by echoing the offsets from its own
-// few-shot example. Deriving them from a verbatim quote is exact by construction.
-func locate(hay, needle []rune, taken []bool) (start, end int, ok bool) {
+// Offsets are computed HERE, never taken from the model, because models cannot count
+// characters — prompt v1 proved it by echoing the offsets from its own few-shot
+// example. Deriving them from a verbatim quote is exact by construction.
+//
+// THE DUPLICATE RULE: WHEN THE QUOTE IS AMBIGUOUS, REFUSE.
+//
+// If the quote occurs more than once and `quote_context` does not disambiguate it,
+// this returns false and the suggestion is dropped. It deliberately does NOT fall
+// back to "the first occurrence".
+//
+// Consider: "அந்த பையன் வந்தான். அந்த பெண் வந்தாள்." The model wants to fix the
+// SECOND அந்த. Defaulting to first-match would rewrite the FIRST one — a confident,
+// silent, wrong edit to a sentence the writer never asked about. That is strictly
+// worse than doing nothing: a miss costs one uncaught error, a wrong-instance edit
+// costs trust in every suggestion.
+//
+// Withholding an ambiguous correction is the same discipline as Tier 1 staying silent
+// on ambiguity. The bias is always toward silence when we cannot prove the target.
+func resolveSpan(hay, needle []rune, quoteContext string, taken []bool) (start, end int, ok bool) {
 	if len(needle) == 0 || len(needle) > len(hay) {
 		return 0, 0, false
 	}
 
+	// Every unclaimed occurrence of the quote.
+	var hits [][2]int
 	for i := 0; i+len(needle) <= len(hay); i++ {
 		match := true
 		for j := range needle {
@@ -180,10 +214,41 @@ func locate(hay, needle []rune, taken []bool) (start, end int, ok bool) {
 			}
 		}
 		if match {
-			return i, i + len(needle), true
+			hits = append(hits, [2]int{i, i + len(needle)})
 		}
 	}
-	return 0, 0, false
+
+	switch len(hits) {
+	case 0:
+		return 0, 0, false // not in the target: the model invented it
+	case 1:
+		return hits[0][0], hits[0][1], true // unambiguous
+	}
+
+	// Ambiguous. The ONLY way to proceed is if quote_context pins the occurrence.
+	if quoteContext == "" {
+		return 0, 0, false
+	}
+
+	ctx := []rune(quoteContext)
+	best, found := -1, 0
+	for _, h := range hits {
+		// Widen a window around this occurrence and see whether the model's context
+		// sits inside it.
+		lo := max(0, h[0]-len(ctx))
+		hi := min(len(hay), h[1]+len(ctx))
+		if strings.Contains(string(hay[lo:hi]), strings.TrimSpace(string(ctx))) {
+			best = h[0]
+			found++
+		}
+	}
+
+	// The context has to select EXACTLY one occurrence. If it matches several, it did
+	// not disambiguate anything and we are back to guessing.
+	if found != 1 {
+		return 0, 0, false
+	}
+	return best, best + len(needle), true
 }
 
 // extractJSON pulls the JSON object out of a model reply.

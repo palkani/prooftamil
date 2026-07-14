@@ -83,7 +83,7 @@ func run() error {
 	// whenever the rules, lexicon, prompts, models or confidence gate change, or
 	// the cache will keep serving corrections produced by the OLD engine for a
 	// full CACHE_TTL_SECONDS (a week by default).
-	const cacheVersion = "3" // bumped: corrector prompt v2 changes model output
+	const cacheVersion = "4" // bumped: corrector prompt v3 (quote_context) changes output
 
 	models, err := buildModelTier(cfg, clients.HTTP, log)
 	if err != nil {
@@ -148,10 +148,11 @@ func buildModelTier(cfg *config.Config, httpc *http.Client, log *slog.Logger) (c
 		return nil, nil
 	}
 
-	// v2: the model quotes the text it wants changed; the server computes the
-	// offsets. v1 asked the model for start/end and it echoed the offsets from its
-	// own few-shot example instead of counting — see corrector.v2.md.
-	correctorPrompt, err := corrector.LoadPrompt("corrector", 2)
+	// v3: the model quotes the text AND supplies quote_context to disambiguate a
+	// repeated quote (§8.4). v1 asked for offsets and the model echoed the ones
+	// memorised from its own few-shot example; v2 fixed that but still resolved a
+	// duplicate quote to the FIRST occurrence, silently correcting the wrong one.
+	correctorPrompt, err := corrector.LoadPrompt("corrector", 3)
 	if err != nil {
 		return nil, err
 	}
@@ -219,11 +220,19 @@ func buildModelTier(cfg *config.Config, httpc *http.Client, log *slog.Logger) (c
 		opts = append(opts, corrector.WithVerifier(verifier, cfg.ConfidenceGate))
 	}
 
+	// §8.5 — the degraded path is a supported configuration, not a failure.
+	opts = append(opts, corrector.WithTier1Only(cfg.Tier1Only))
+	if cfg.Tier1Only {
+		log.Warn("TIER1_ONLY is set: no model will be called. " +
+			"Deterministic corrections only — grammar and real-word errors will NOT be caught.")
+	}
+
 	log.Info("model tier configured",
 		"primary", nameOf(primary), "fallback", nameOf(fallback),
-		"hedge_delay", cfg.HedgeDelay, "verify_below", cfg.ConfidenceGate)
+		"fallback_trigger", cfg.FallbackTrigger, "model_timeout", cfg.ModelTimeout,
+		"verify_below", cfg.ConfidenceGate, "tier1_only", cfg.Tier1Only)
 
-	return corrector.NewRouter(primary, fallback, cfg.HedgeDelay, log, opts...), nil
+	return corrector.NewRouter(primary, fallback, cfg.ModelTimeout, log, opts...), nil
 }
 
 func nameOf(c corrector.Corrector) string {

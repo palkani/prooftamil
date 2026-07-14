@@ -17,12 +17,17 @@ func TestLoadDefaultsInDev(t *testing.T) {
 	if cfg.Port != "8080" {
 		t.Errorf("Port = %q, want 8080", cfg.Port)
 	}
-	// 2500ms, not the plan's 800ms. The primary (Gemini, thinking off) has a
-	// measured p50 of 946ms and a 1210ms tail, so an 800ms hedge would fire the
-	// fallback on roughly HALF of all requests and double model spend — while
-	// racing in Sarvam, which is ~8x slower and could not win anyway.
-	if cfg.HedgeDelay != 2500*time.Millisecond {
-		t.Errorf("HedgeDelay = %v, want 2.5s", cfg.HedgeDelay)
+	// §8.6 — there is no latency hedge any more. The fallback is FAILOVER: it fires
+	// only when the primary errors or blows MODEL_TIMEOUT_MS. Racing Sarvam (~8x
+	// slower than Gemini) could never win, so a hedge was pure cost.
+	if cfg.ModelTimeout != 6000*time.Millisecond {
+		t.Errorf("ModelTimeout = %v, want 6s", cfg.ModelTimeout)
+	}
+	if cfg.FallbackTrigger != "on_error" {
+		t.Errorf("FallbackTrigger = %q, want on_error", cfg.FallbackTrigger)
+	}
+	if cfg.Tier1Only {
+		t.Error("Tier1Only must default to false")
 	}
 	if cfg.CacheTTL != 604800*time.Second {
 		t.Errorf("CacheTTL = %v, want 7 days", cfg.CacheTTL)

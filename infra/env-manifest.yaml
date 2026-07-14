@@ -62,9 +62,14 @@ services:
       - { key: MODEL_ROUTER_CONFIG,           type: config, value: "{}" }
       - { key: SEMANTIC_SIMILARITY_THRESHOLD, type: config, value: "0.92" }
       - { key: CACHE_TTL_SECONDS,             type: config, value: "604800" }
-      # 2500, not 800: the primary (Gemini) has a measured p50 of 946ms, so an 800ms
-      # hedge would fire on ~half of all requests and double model spend.
-      - { key: HEDGE_DELAY_MS,                type: config, value: "2500" }
+      # §8.6 — the fallback is FAILOVER, not a latency hedge. Gemini p50 0.9s vs
+      # Sarvam 7.8s: racing them could never win, it would only double the spend.
+      # HEDGE_DELAY_MS is gone; MODEL_TIMEOUT_MS replaces it.
+      - { key: FALLBACK_TRIGGER,              type: config, value: "on_error" }
+      - { key: MODEL_TIMEOUT_MS,              type: config, value: "6000" }
+      # §8.5 — degraded mode: deterministic Tier 1 only, no model can hallucinate a fix.
+      # Flip without a redeploy if fallback quality ever proves worse than silence.
+      - { key: TIER1_ONLY,                    type: config, value: "false" }
       - { key: CONFIDENCE_GATE,               type: config, value: "0.85" }
 
       # Billing + email

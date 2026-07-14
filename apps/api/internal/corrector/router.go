@@ -10,25 +10,40 @@ import (
 	"github.com/prooftamil/api/internal/cascade"
 )
 
-// Router runs the model tiers: a primary corrector, a hedged fallback, and a
-// verifier for anything the primary was not sure about.
+// Router runs the model tiers (plan §8).
+//
+// FALLBACK IS ON ERROR, NOT ON A TIMER (§8.6).
+//
+// An earlier version raced the fallback after HEDGE_DELAY_MS. That was tuned for a
+// latency regime that does not exist. Measured live:
+//
+//	Gemini (primary):   p50 0.9s,  tail 1.2s
+//	Sarvam (fallback):  p50 7.8s,  tail 17.8s
+//
+// A hedge only pays when the second model might FINISH FIRST. Sarvam is ~8x slower,
+// so it can never win the race — the hedge would fire on the tail of every slow
+// request, double the spend, and still return Gemini's answer. Pure cost, zero
+// latency benefit.
+//
+// So the fallback fires only when the primary actually FAILS: an error, or
+// MODEL_TIMEOUT_MS elapsing. That is failover, which is about availability, not
+// latency.
 type Router struct {
-	primary  Corrector // Sarvam
-	fallback Corrector // Gemini, in its corrector role
-	verifier Verifier  // Gemini, in its verifier role
+	primary  Corrector // Gemini 2.5-flash, thinking OFF
+	fallback Corrector // Sarvam — error-only, kept for provider independence
+	verifier Verifier  // Gemini, thinking ON
 
-	// hedgeDelay is how long we wait for the primary before ALSO firing the
-	// fallback (HEDGE_DELAY_MS, §3.1). This is a latency device, not a failover
-	// one: failover happens on error, hedging happens on slowness.
-	hedgeDelay time.Duration
+	// timeout bounds the primary. Past this it is treated as failed and the fallback
+	// takes over. Sized well above the primary's measured tail (1.2s) so a merely
+	// slow-but-alive call is not thrown away.
+	timeout time.Duration
 
-	// verifyBelow: suggestions the primary reports at or above this confidence are
-	// shown as-is. Below it, the verifier gets a veto.
-	//
-	// Verifying EVERYTHING would double the cost of the expensive path and add a
-	// second round trip to corrections we were already confident about. Verifying
-	// NOTHING would let the primary's shakiest guesses reach the writer. This
-	// threshold is where that trade is set.
+	// tier1Only disables the model tiers entirely (§8.5). A feature flag, not a
+	// config accident: if the fallback's quality ever proves WORSE than silence, the
+	// safe degraded path is deterministic Tier 1 alone — it can never surface a
+	// hallucinated fix.
+	tier1Only bool
+
 	verifyBelow float64
 
 	log *slog.Logger
@@ -40,128 +55,78 @@ func WithVerifier(v Verifier, below float64) RouterOption {
 	return func(r *Router) { r.verifier = v; r.verifyBelow = below }
 }
 
-func NewRouter(primary, fallback Corrector, hedgeDelay time.Duration, log *slog.Logger, opts ...RouterOption) *Router {
+// WithTier1Only forces the degraded path: no model is ever called (§8.5).
+func WithTier1Only(on bool) RouterOption {
+	return func(r *Router) { r.tier1Only = on }
+}
+
+func NewRouter(primary, fallback Corrector, timeout time.Duration, log *slog.Logger, opts ...RouterOption) *Router {
 	if log == nil {
 		log = slog.Default()
 	}
-	r := &Router{
-		primary:    primary,
-		fallback:   fallback,
-		hedgeDelay: hedgeDelay,
-		log:        log,
+	if timeout <= 0 {
+		timeout = 6 * time.Second
 	}
+	r := &Router{primary: primary, fallback: fallback, timeout: timeout, log: log}
 	for _, o := range opts {
 		o(r)
 	}
 	return r
 }
 
-type attempt struct {
-	resp *Response
-	err  error
-	who  string
-}
-
-// Correct runs the hedged primary/fallback race, then verifies the low-confidence
-// survivors.
-//
-// The hedge:
-//
-//	t=0            fire the primary (Sarvam)
-//	t=hedgeDelay   if it has not answered, ALSO fire the fallback (Gemini)
-//	               — we do not cancel the primary; it may still win
-//	first success  wins; the loser is cancelled
-//
-// This bounds tail latency without doubling cost on the common path: when the
-// primary answers inside hedgeDelay (the normal case) the fallback is never
-// called at all. It costs a second call only on the slow tail, which is exactly
-// where a user is about to give up.
-//
-// If the primary FAILS (rather than being slow) the fallback fires immediately —
-// no point waiting out the hedge delay for an answer that is never coming.
+// Correct runs the primary, and falls back ONLY if it fails or times out.
 func (r *Router) Correct(ctx context.Context, req Request) (*Response, error) {
+	if r.tier1Only {
+		// §8.5 — the degraded path. Tier 1's deterministic corrections still reach the
+		// user; the model residue simply does not. Safe by construction.
+		return nil, errors.New("model tier disabled (tier-1-only mode)")
+	}
 	if r.primary == nil && r.fallback == nil {
 		return nil, errors.New("no model configured")
 	}
-	// With only one model available, the hedge is meaningless — just call it.
-	if r.primary == nil {
-		return r.withVerification(ctx, req, r.fallback)
-	}
-	if r.fallback == nil {
-		return r.withVerification(ctx, req, r.primary)
-	}
 
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel() // cancels whichever call lost the race
+	if r.primary != nil {
+		resp, err := r.callWithTimeout(ctx, r.primary, req)
+		if err == nil {
+			return r.verify(ctx, req, resp)
+		}
+		r.log.WarnContext(ctx, "primary failed; falling back",
+			"model", r.primary.Name(), "err", err, "timeout", r.timeout)
 
-	results := make(chan attempt, 2)
-	var wg sync.WaitGroup
-
-	fire := func(c Corrector) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			resp, err := c.Correct(ctx, req)
-			results <- attempt{resp: resp, err: err, who: c.Name()}
-		}()
-	}
-
-	fire(r.primary)
-
-	hedge := time.NewTimer(r.hedgeDelay)
-	defer hedge.Stop()
-
-	var (
-		firstErr error
-		pending  = 1
-		hedged   bool
-	)
-
-	for pending > 0 {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-
-		case <-hedge.C:
-			// The primary is slow. Race the fallback alongside it rather than
-			// replacing it — the primary may still be about to answer.
-			if !hedged {
-				hedged = true
-				pending++
-				r.log.InfoContext(ctx, "hedging: primary slow, firing fallback",
-					"after", r.hedgeDelay, "fallback", r.fallback.Name())
-				fire(r.fallback)
-			}
-
-		case a := <-results:
-			pending--
-			if a.err == nil {
-				r.log.InfoContext(ctx, "model tier resolved",
-					"winner", a.who, "hedged", hedged,
-					"suggestions", len(a.resp.Suggestions), "latency_ms", a.resp.LatencyMS)
-				return r.verify(ctx, req, a.resp)
-			}
-
-			r.log.WarnContext(ctx, "corrector failed", "model", a.who, "err", a.err)
-			if firstErr == nil {
-				firstErr = a.err
-			}
-
-			// The primary died rather than dragged. Don't sit out the hedge delay
-			// waiting for a corpse — fire the fallback now.
-			if !hedged {
-				hedged = true
-				pending++
-				fire(r.fallback)
-			}
+		if r.fallback == nil {
+			return nil, err
 		}
 	}
 
-	return nil, firstErr
+	// The fallback exists for provider independence — a Google outage must not take
+	// the product down — not for speed. Its output passes the SAME quote-anchor and
+	// confidence gates, which is exactly what rejected its live English hallucination.
+	resp, err := r.callWithTimeout(ctx, r.fallback, req)
+	if err != nil {
+		return nil, err
+	}
+	r.log.InfoContext(ctx, "served by fallback", "model", r.fallback.Name())
+	return r.verify(ctx, req, resp)
 }
 
-// CorrectSentence adapts Router to cascade.ModelTier, which is declared in terms
-// of plain strings so the cascade package does not have to import this one.
+// callWithTimeout bounds a single model call. Without this a hung provider would hold
+// the user's editor open until the HTTP client's own (much longer) timeout fired.
+func (r *Router) callWithTimeout(ctx context.Context, c Corrector, req Request) (*Response, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	resp, err := c.Correct(ctx, req)
+	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return nil, errors.New(c.Name() + ": timed out after " + r.timeout.String())
+		}
+		return nil, err
+	}
+	return resp, nil
+}
+
+// CorrectSentence adapts Router to cascade.ModelTier, which is declared in terms of
+// plain strings so the cascade package does not have to import this one.
 func (r *Router) CorrectSentence(ctx context.Context, target, before, after string) ([]cascade.Suggestion, error) {
 	resp, err := r.Correct(ctx, Request{
 		Target:        target,
@@ -174,16 +139,9 @@ func (r *Router) CorrectSentence(ctx context.Context, target, before, after stri
 	return resp.Suggestions, nil
 }
 
-func (r *Router) withVerification(ctx context.Context, req Request, c Corrector) (*Response, error) {
-	resp, err := c.Correct(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	return r.verify(ctx, req, resp)
-}
-
-// verify gives the verifier a veto over the primary's low-confidence suggestions
-// (§8.2). High-confidence ones pass straight through.
+// verify gives the verifier a veto over low-confidence suggestions (§8.3). High-
+// confidence ones pass straight through: verifying everything would double the cost
+// of the expensive path and add a round trip to corrections we were already sure of.
 func (r *Router) verify(ctx context.Context, req Request, resp *Response) (*Response, error) {
 	if r.verifier == nil || len(resp.Suggestions) == 0 {
 		return resp, nil
@@ -207,9 +165,9 @@ func (r *Router) verify(ctx context.Context, req Request, resp *Response) (*Resp
 
 			v, err := r.verifier.Verify(ctx, req.Target, s)
 			if err != nil {
-				// The verifier is unavailable. Keeping an unverified low-confidence
-				// suggestion would show the writer exactly the guess we wanted a
-				// second opinion on, so drop it. Staying silent is the safe failure.
+				// The verifier is down. Keeping an unverified low-confidence suggestion
+				// would show the writer exactly the guess we wanted a second opinion on,
+				// so drop it. Silence is the safe failure.
 				r.log.WarnContext(ctx, "verifier unavailable; dropping unverified suggestion",
 					"err", err, "original", s.Original)
 				return
@@ -220,13 +178,11 @@ func (r *Router) verify(ctx context.Context, req Request, resp *Response) (*Resp
 				return
 			}
 
-			// The verifier may propose something better than the primary did.
 			if v.RevisedSuggestion != "" && v.RevisedSuggestion != s.Suggestion {
 				s.Suggestion = v.RevisedSuggestion
 			}
-			// Approval is evidence, so the suggestion inherits the verifier's
-			// confidence — that is what lets it clear the confidence gate it would
-			// otherwise have failed.
+			// Approval is evidence, so the suggestion inherits the verifier's confidence —
+			// that is what lets it clear the gate it would otherwise have failed.
 			s.Confidence = v.Confidence
 			s.SourceTier = cascade.TierVerifier
 
@@ -237,7 +193,6 @@ func (r *Router) verify(ctx context.Context, req Request, resp *Response) (*Resp
 	}
 	wg.Wait()
 
-	// Verification runs concurrently, so restore document order.
 	sortByPosition(kept)
 	resp.Suggestions = kept
 	return resp, nil

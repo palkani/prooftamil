@@ -18,7 +18,7 @@ const target = "அந்த பையன் வந்தான்" // அந்
 func TestValidateLocatesTheQuotedTextAndDerivesOffsets(t *testing.T) {
 	// The model quotes; the SERVER computes offsets. It never sends start/end.
 	raw := rawResponse{Suggestions: []rawSuggestion{
-		{Original: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 0.95},
+		{Quote: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 0.95},
 	}}
 
 	got, err := validate(raw, target, cascade.TierPrimary)
@@ -47,7 +47,7 @@ func TestValidateLocatesTheQuotedTextAndDerivesOffsets(t *testing.T) {
 func TestOffsetsAreDerivedNotTrusted(t *testing.T) {
 	sentence := "நாங்கள் நகரத்திற்கு போனேன்." // போனேன் truly sits at runes 20..26
 	raw := rawResponse{Suggestions: []rawSuggestion{
-		{Original: "போனேன்", Suggestion: "போனோம்", Type: "agreement", Confidence: 0.96},
+		{Quote: "போனேன்", Suggestion: "போனோம்", Type: "agreement", Confidence: 0.96},
 	}}
 
 	got, _ := validate(raw, sentence, cascade.TierPrimary)
@@ -68,7 +68,7 @@ func TestValidateRejectsTextThatIsNotInTheSentence(t *testing.T) {
 	// English. It must not touch the writer's document.
 	for _, orig := range []string{"NOT_IN_TEXT", "they vanijars", "பையன்கள்"} {
 		raw := rawResponse{Suggestions: []rawSuggestion{
-			{Original: orig, Suggestion: "x", Type: "grammar", Confidence: 0.99},
+			{Quote: orig, Suggestion: "x", Type: "grammar", Confidence: 0.99},
 		}}
 		if got, _ := validate(raw, target, cascade.TierPrimary); len(got) != 0 {
 			t.Errorf("quoting %q (absent from the target) must be rejected", orig)
@@ -78,9 +78,9 @@ func TestValidateRejectsTextThatIsNotInTheSentence(t *testing.T) {
 
 func TestValidateRejectsUnknownTypeAndInsaneConfidence(t *testing.T) {
 	for _, raw := range []rawSuggestion{
-		{Original: "அந்த", Suggestion: "அந்தப்", Type: "vibes", Confidence: 0.9},
-		{Original: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 7.0},
-		{Original: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: -1},
+		{Quote: "அந்த", Suggestion: "அந்தப்", Type: "vibes", Confidence: 0.9},
+		{Quote: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 7.0},
+		{Quote: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: -1},
 	} {
 		if got, _ := validate(rawResponse{Suggestions: []rawSuggestion{raw}}, target, cascade.TierPrimary); len(got) != 0 {
 			t.Errorf("must reject %+v", raw)
@@ -91,7 +91,7 @@ func TestValidateRejectsUnknownTypeAndInsaneConfidence(t *testing.T) {
 func TestValidateRejectsANoOpCorrection(t *testing.T) {
 	// "Correcting" a word to itself is noise in the editor.
 	raw := rawResponse{Suggestions: []rawSuggestion{
-		{Original: "அந்த", Suggestion: "அந்த", Type: "sandhi", Confidence: 0.9},
+		{Quote: "அந்த", Suggestion: "அந்த", Type: "sandhi", Confidence: 0.9},
 	}}
 	if got, _ := validate(raw, target, cascade.TierPrimary); len(got) != 0 {
 		t.Error("a suggestion that changes nothing must be dropped")
@@ -101,8 +101,8 @@ func TestValidateRejectsANoOpCorrection(t *testing.T) {
 func TestValidateKeepsGoodRowsWhenOneRowIsBad(t *testing.T) {
 	// One unlocatable row must not discard the model's correct work.
 	raw := rawResponse{Suggestions: []rawSuggestion{
-		{Original: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 0.95},
-		{Original: "junk", Suggestion: "junk2", Type: "spelling", Confidence: 0.9},
+		{Quote: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 0.95},
+		{Quote: "junk", Suggestion: "junk2", Type: "spelling", Confidence: 0.9},
 	}}
 
 	got, _ := validate(raw, target, cascade.TierPrimary)
@@ -114,14 +114,53 @@ func TestValidateKeepsGoodRowsWhenOneRowIsBad(t *testing.T) {
 	}
 }
 
-// A word that repeats must not have both suggestions collapse onto the first
-// occurrence — that would leave the second instance uncorrected and double-underline
-// the first.
-func TestRepeatedWordMapsToSuccessiveOccurrences(t *testing.T) {
-	sentence := "அந்த பையன் அந்த பெண்"
+// §8.4 — AN AMBIGUOUS QUOTE IS REFUSED, NOT GUESSED AT.
+//
+// The model wants to fix the SECOND அந்த but gives no context. Resolving to the first
+// occurrence would rewrite a word in a sentence the writer never asked about — a
+// confident, silent, WRONG edit. A miss costs one uncaught error; a wrong-instance
+// edit costs trust in every suggestion. So we withhold.
+func TestAmbiguousQuoteWithoutContextIsDropped(t *testing.T) {
+	sentence := "அந்த பையன் வந்தான். அந்த பெண் வந்தாள்."
 	raw := rawResponse{Suggestions: []rawSuggestion{
-		{Original: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 0.95},
-		{Original: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 0.95},
+		{Quote: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 0.95},
+	}}
+
+	got, _ := validate(raw, sentence, cascade.TierPrimary)
+	if len(got) != 0 {
+		t.Fatalf("an ambiguous quote must be DROPPED, not resolved to the first match; got %+v", got)
+	}
+}
+
+// With quote_context the occurrence is pinned, so the correction is safe to apply.
+func TestQuoteContextDisambiguatesARepeatedQuote(t *testing.T) {
+	sentence := "அந்த பையன் வந்தான். அந்த பெண் வந்தாள்."
+	raw := rawResponse{Suggestions: []rawSuggestion{
+		{Quote: "அந்த", QuoteContext: "அந்த பெண்", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 0.95},
+	}}
+
+	got, _ := validate(raw, sentence, cascade.TierPrimary)
+	if len(got) != 1 {
+		t.Fatalf("quote_context should have resolved this; got %d", len(got))
+	}
+
+	// It must land on the SECOND அந்த, not the first.
+	runes := []rune(sentence)
+	if string(runes[got[0].Start:got[0].End]) != "அந்த" {
+		t.Errorf("span does not select அந்த")
+	}
+	second := len([]rune("அந்த பையன் வந்தான். "))
+	if got[0].Start != second {
+		t.Errorf("resolved to offset %d, want %d (the SECOND occurrence)", got[0].Start, second)
+	}
+}
+
+// Both occurrences legitimately need fixing: each carries its own context.
+func TestBothOccurrencesCanBeCorrectedWithContext(t *testing.T) {
+	sentence := "அந்த பையன் வந்தான். அந்த பெண் வந்தாள்."
+	raw := rawResponse{Suggestions: []rawSuggestion{
+		{Quote: "அந்த", QuoteContext: "அந்த பையன்", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 0.95},
+		{Quote: "அந்த", QuoteContext: "அந்த பெண்", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 0.95},
 	}}
 
 	got, _ := validate(raw, sentence, cascade.TierPrimary)
@@ -129,13 +168,7 @@ func TestRepeatedWordMapsToSuccessiveOccurrences(t *testing.T) {
 		t.Fatalf("got %d, want 2", len(got))
 	}
 	if got[0].Start == got[1].Start {
-		t.Error("both suggestions landed on the same occurrence")
-	}
-	runes := []rune(sentence)
-	for _, s := range got {
-		if string(runes[s.Start:s.End]) != "அந்த" {
-			t.Errorf("offsets [%d:%d] do not select அந்த", s.Start, s.End)
-		}
+		t.Error("both landed on the same occurrence")
 	}
 }
 
@@ -195,84 +228,89 @@ func (f *fakeCorrector) Correct(ctx context.Context, _ Request) (*Response, erro
 
 func req() Request { return Request{Target: target} }
 
-func TestFastPrimaryNeverFiresTheFallback(t *testing.T) {
-	// The common case. Hedging must not double our model spend when the primary
-	// is answering promptly.
-	primary := &fakeCorrector{name: "sarvam", delay: 10 * time.Millisecond}
-	fallback := &fakeCorrector{name: "gemini"}
+func TestFallbackIsNotFiredWhenThePrimarySucceeds(t *testing.T) {
+	// §8.6 — the fallback is FAILOVER, not a latency hedge. A slow-but-working primary
+	// must never cost a second call: Sarvam is ~8x slower than Gemini, so racing it
+	// could not win the race anyway — it would only double the spend.
+	primary := &fakeCorrector{name: "gemini", delay: 300 * time.Millisecond}
+	fallback := &fakeCorrector{name: "sarvam"}
 
-	r := NewRouter(primary, fallback, 200*time.Millisecond, nil)
+	r := NewRouter(primary, fallback, 6*time.Second, nil)
 
 	resp, err := r.Correct(context.Background(), req())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Model != "sarvam" {
-		t.Errorf("winner = %s, want sarvam", resp.Model)
+	if resp.Model != "gemini" {
+		t.Errorf("winner = %s, want gemini", resp.Model)
 	}
 	if n := fallback.calls.Load(); n != 0 {
-		t.Errorf("fallback called %d times; a fast primary must not cost a second call", n)
+		t.Errorf("fallback called %d times; a working primary must never cost a second call", n)
 	}
 }
 
-func TestSlowPrimaryTriggersTheHedge(t *testing.T) {
-	// The primary drags; the fallback is fired alongside it and wins.
-	primary := &fakeCorrector{name: "sarvam", delay: 2 * time.Second}
-	fallback := &fakeCorrector{name: "gemini", delay: 10 * time.Millisecond}
+// FAULT INJECTION (§8.6, Phase 2 exit check): Gemini down, Sarvam serves.
+func TestFallbackFiresOnPrimaryError(t *testing.T) {
+	primary := &fakeCorrector{name: "gemini", err: errors.New("503 service unavailable")}
+	fallback := &fakeCorrector{name: "sarvam", delay: 10 * time.Millisecond}
 
-	r := NewRouter(primary, fallback, 50*time.Millisecond, nil)
+	r := NewRouter(primary, fallback, 6*time.Second, nil)
 
-	start := time.Now()
-	resp, err := r.Correct(context.Background(), req())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if resp.Model != "gemini" {
-		t.Errorf("winner = %s, want gemini (the primary was slow)", resp.Model)
-	}
-	if fallback.calls.Load() != 1 {
-		t.Error("the hedge should have fired the fallback")
-	}
-	// It must not have waited out the slow primary.
-	if elapsed := time.Since(start); elapsed > time.Second {
-		t.Errorf("took %v — the hedge did not bound tail latency", elapsed)
-	}
-}
-
-// FAULT INJECTION (plan §9, Phase 2 exit check): Sarvam down, Gemini serves.
-func TestPrimaryFailureFallsBackImmediately(t *testing.T) {
-	primary := &fakeCorrector{name: "sarvam", err: errors.New("503 service unavailable")}
-	fallback := &fakeCorrector{name: "gemini", delay: 10 * time.Millisecond}
-
-	// A long hedge delay: if failover waited for it, this test would take 10s.
-	r := NewRouter(primary, fallback, 10*time.Second, nil)
-
-	start := time.Now()
 	resp, err := r.Correct(context.Background(), req())
 	if err != nil {
 		t.Fatalf("a primary outage must be survivable: %v", err)
 	}
-
-	if resp.Model != "gemini" {
-		t.Errorf("winner = %s, want gemini", resp.Model)
+	if resp.Model != "sarvam" {
+		t.Errorf("winner = %s, want sarvam", resp.Model)
 	}
-	// A dead primary must not make us sit out the hedge delay waiting for a
-	// response that is never coming.
-	if elapsed := time.Since(start); elapsed > 2*time.Second {
-		t.Errorf("failover took %v — it waited for the hedge timer instead of "+
-			"reacting to the error", elapsed)
+}
+
+func TestFallbackFiresOnPrimaryTimeout(t *testing.T) {
+	// MODEL_TIMEOUT_MS: a hung provider must not hold the writer's editor open until
+	// the HTTP client's own (much longer) timeout fires.
+	primary := &fakeCorrector{name: "gemini", delay: 10 * time.Second}
+	fallback := &fakeCorrector{name: "sarvam", delay: 10 * time.Millisecond}
+
+	r := NewRouter(primary, fallback, 200*time.Millisecond, nil)
+
+	start := time.Now()
+	resp, err := r.Correct(context.Background(), req())
+	if err != nil {
+		t.Fatalf("a timed-out primary must fall back: %v", err)
+	}
+	if resp.Model != "sarvam" {
+		t.Errorf("winner = %s, want sarvam", resp.Model)
+	}
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Errorf("took %v — the timeout did not bound the primary", elapsed)
 	}
 }
 
 func TestBothModelsDownReturnsAnError(t *testing.T) {
-	primary := &fakeCorrector{name: "sarvam", err: errors.New("down")}
-	fallback := &fakeCorrector{name: "gemini", err: errors.New("also down")}
+	primary := &fakeCorrector{name: "gemini", err: errors.New("down")}
+	fallback := &fakeCorrector{name: "sarvam", err: errors.New("also down")}
 
-	r := NewRouter(primary, fallback, 10*time.Millisecond, nil)
+	r := NewRouter(primary, fallback, time.Second, nil)
 
 	if _, err := r.Correct(context.Background(), req()); err == nil {
 		t.Fatal("both models failing must surface an error, not a silent empty result")
+	}
+}
+
+// §8.5 — the degraded path. If the fallback's quality ever proves worse than silence,
+// TIER1_ONLY stops any model being called at all. The orchestrator then serves Tier 1's
+// deterministic corrections alone, which can never be a hallucination.
+func TestTier1OnlyCallsNoModel(t *testing.T) {
+	primary := &fakeCorrector{name: "gemini"}
+	fallback := &fakeCorrector{name: "sarvam"}
+
+	r := NewRouter(primary, fallback, time.Second, nil, WithTier1Only(true))
+
+	if _, err := r.Correct(context.Background(), req()); err == nil {
+		t.Fatal("tier-1-only mode must not return a model result")
+	}
+	if primary.calls.Load() != 0 || fallback.calls.Load() != 0 {
+		t.Error("tier-1-only mode must call NO model")
 	}
 }
 
