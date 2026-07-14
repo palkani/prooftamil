@@ -1,0 +1,155 @@
+/* =============================================================================
+ * ProofTamil design tokens (§17.1)
+ *
+ * BRAND CONTINUITY WITH PRODUCTION. These are lifted from the live app's
+ * tailwind.config.js, not invented: Rich Indigo as the primary, Saffron Amber as the
+ * accent ("Tamil cultural warmth"), Inter for UI chrome, Noto Sans Tamil for content.
+ *
+ * v2 had been shipping a flat green palette. That was a mistake — a returning user would
+ * have felt they had landed on a different product. Brand is not decoration; it is the
+ * promise that this is the same tool they already trust.
+ * ========================================================================== */
+
+:root {
+  /* --- brand: Rich Indigo ------------------------------------------------ */
+  --indigo-50: #eef2ff;
+  --indigo-100: #e0e7ff;
+  --indigo-200: #c7d2fe;
+  --indigo-300: #a5b4fc;
+  --indigo-400: #818cf8;
+  --indigo-500: #6366f1;
+  --indigo-600: #4f46e5;  /* main brand */
+  --indigo-700: #4338ca;
+  --indigo-800: #3730a3;
+  --indigo-900: #312e81;
+  --indigo-950: #1e1b4b;  /* deep brand */
+
+  /* --- accent: Saffron Amber (the Tamil warmth) -------------------------- */
+  --amber-50: #fffbeb;
+  --amber-100: #fef3c7;
+  --amber-300: #fcd34d;
+  --amber-400: #fbbf24;
+  --amber-500: #f59e0b;   /* main accent */
+  --amber-600: #d97706;
+
+  /* --- semantic ---------------------------------------------------------- */
+  --brand: var(--indigo-600);
+  --brand-deep: var(--indigo-950);
+  --brand-fg: #ffffff;
+  --brand-soft: var(--indigo-50);
+  --accent: var(--amber-500);
+  --accent-deep: var(--amber-600);
+
+  --bg: #ffffff;
+  --bg-alt: #fafaff;
+  --panel: #ffffff;
+  --fg: #1a1626;
+  --body: #4a4556;        /* production's body colour */
+  --muted: #6b7280;
+  --line: #e8e6f2;
+  --line-strong: #d6d3e6;
+
+  --danger: #dc2626;
+  --success: #059669;
+
+  /* --- gradients (production's signature) -------------------------------- */
+  --grad-brand: linear-gradient(135deg, #1e1b4b 0%, #4f46e5 100%);
+  --grad-amber: linear-gradient(135deg, #d97706 0%, #f59e0b 100%);
+  /* The aurora wash behind the hero. */
+  --grad-aurora:
+    radial-gradient(60% 55% at 15% 10%, rgb(99 102 241 / 0.14), transparent 60%),
+    radial-gradient(55% 50% at 85% 5%, rgb(245 158 11 / 0.12), transparent 60%),
+    radial-gradient(45% 40% at 50% 100%, rgb(79 70 229 / 0.08), transparent 70%);
+
+  /* --- ERROR-TYPE SEMANTICS ---------------------------------------------
+   *
+   * DELIBERATELY NOT THE BRAND COLOURS. These four mark spelling / grammar / sandhi /
+   * style underlines, and they are drawn from the Okabe-Ito palette, which stays
+   * distinguishable under every common form of colour-vision deficiency (~8% of men
+   * cannot separate red from green — the exact pair a naive scheme reaches for).
+   *
+   * Brand indigo is deliberately absent: a suggestion is not a brand moment, and if an
+   * underline shared the brand colour it would read as decoration rather than a warning.
+   * Colour is never the only signal either — every suggestion carries a text badge naming
+   * its type.
+   */
+  --err-spelling: #d55e00;   /* vermillion */
+  --err-grammar: #0072b2;    /* blue */
+  --err-sandhi: #009e73;     /* bluish green */
+  --err-style: #cc79a7;      /* reddish purple */
+
+  /* TEXT variants of the same hues, darkened.
+   *
+   * The colours above are tuned for MARKS — a wavy underline is a non-text graphic and
+   * WCAG asks 3:1 of it, which they clear. As small TEXT they do not: the sandhi badge
+   * measured 3.42:1 against 4.5:1 required, and style was worse at 3.06:1.
+   *
+   * Rather than compromise the underlines (where hue separation is the whole point), the
+   * badges get darker versions of the same hues. Same semantics, legible at 11px. */
+  --err-spelling-text: #b34d00;  /* 5.28:1 */
+  --err-grammar-text: #005b8f;   /* 7.26:1 */
+  --err-sandhi-text: #00755a;    /* 5.69:1 */
+  --err-style-text: #a35c84;     /* 4.75:1 */
+
+  /* --- type -------------------------------------------------------------
+   * --font-tamil and --font-ui come from next/font (layout.tsx). Do not redefine them
+   * here: it would shadow the generated @font-face and silently drop the self-hosted
+   * font.
+   *
+   * Tamil needs MORE VERTICAL ROOM THAN LATIN. Its glyphs stack — a consonant can carry
+   * a vowel sign above and another below (ஔ, ஸ்ரீ, க்ஷ). At Latin's usual 1.5 those marks
+   * collide with the lines around them or clip.
+   */
+  --tamil-size: 1.2rem;
+  --tamil-leading: 1.95;
+
+  --r-sm: 8px;
+  --r: 12px;
+  --r-lg: 16px;
+  --r-xl: 24px;
+
+  --sh-sm: 0 1px 2px rgb(30 27 75 / 0.06);
+  --sh: 0 4px 16px rgb(30 27 75 / 0.08);
+  --sh-lg: 0 12px 40px rgb(30 27 75 / 0.12);
+  --sh-brand: 0 8px 24px rgb(79 70 229 / 0.24);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --brand: var(--indigo-400);
+    --brand-deep: #0f0d24;
+    --brand-fg: #12102a;
+    --brand-soft: rgb(99 102 241 / 0.12);
+    --accent: var(--amber-400);
+
+    --bg: #12101c;
+    --bg-alt: #161422;
+    --panel: #1a1828;
+    --fg: #ece9f5;
+    --body: #c4bfd4;
+    --muted: #9a94ad;
+    --line: #2a2740;
+    --line-strong: #3a3654;
+
+    /* Lightened for AA contrast on the dark surface; hue relationships preserved. */
+    --err-spelling: #ff9d4d;
+    --err-grammar: #6cb6ff;
+    --err-sandhi: #4ade80;
+    --err-style: #f0a3cd;
+
+    /* On a dark surface the marks are already light enough to read as text. */
+    --err-spelling-text: var(--err-spelling);
+    --err-grammar-text: var(--err-grammar);
+    --err-sandhi-text: var(--err-sandhi);
+    --err-style-text: var(--err-style);
+
+    --danger: #f87171;
+
+    --grad-aurora:
+      radial-gradient(60% 55% at 15% 10%, rgb(99 102 241 / 0.20), transparent 60%),
+      radial-gradient(55% 50% at 85% 5%, rgb(245 158 11 / 0.10), transparent 60%);
+
+    --sh: 0 4px 20px rgb(0 0 0 / 0.35);
+    --sh-lg: 0 12px 40px rgb(0 0 0 / 0.5);
+  }
+}
