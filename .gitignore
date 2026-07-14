@@ -42,3 +42,8 @@ coverage.out
 # lexicon build artifacts — the .gz versions are committed, not these
 packages/tamil-rules/dictionaries/corpus.txt
 eval/holdout.txt
+
+# next.js
+apps/web/.next/
+apps/web/next-env.d.ts
+apps/web/tsconfig.tsbuildinfo
