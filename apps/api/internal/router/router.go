@@ -2,6 +2,8 @@
 package router
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/prooftamil/api/internal/config"
@@ -15,6 +17,26 @@ func New(cfg *config.Config, health *handlers.Health, proofread *handlers.Proofr
 
 	r := gin.New()
 	r.Use(gin.Recovery())
+
+	// Dev-only CORS, so a page served from a different local port (the Phase 4
+	// editor, or the scratch test harness) can call the API.
+	//
+	// Gated on APP_ENV so this can never become a production hole: in staging/prod
+	// the frontend is served from the same origin behind Cloudflare, and a wildcard
+	// Allow-Origin there would let any website on the internet make authenticated
+	// requests on a logged-in user's behalf.
+	if cfg.AppEnv == "dev" {
+		r.Use(func(c *gin.Context) {
+			c.Header("Access-Control-Allow-Origin", "*")
+			c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			if c.Request.Method == http.MethodOptions {
+				c.AbortWithStatus(http.StatusNoContent)
+				return
+			}
+			c.Next()
+		})
+	}
 
 	// Cloud Run and the Cloudflare load balancer terminate TLS upstream, so the
 	// client IP arrives in X-Forwarded-For. Trusting only those proxies keeps

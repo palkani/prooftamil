@@ -40,6 +40,33 @@ dev: ## Run api + ml locally (Ctrl-C stops both). Loads .env if present.
 	( cd apps/api && APP_ENV=dev PORT=8080 ML_SERVICE_URL=http://localhost:8081 go run ./cmd/server ) & \
 	wait
 
+# 4173, not 3000: port 3000 is the default for every Node dev server on the planet,
+# and a collision does not fail loudly — the static server just loses the bind and
+# you silently browse whatever else is listening.
+DEMO_PORT ?= 4173
+
+.PHONY: demo
+demo: ## Run the full stack + a browser test page (Ctrl-C stops all)
+	@for p in $(DEMO_PORT) 8080 8081; do \
+	  if lsof -nP -iTCP:$$p -sTCP:LISTEN >/dev/null 2>&1; then \
+	    echo "ERROR: port $$p is already in use. Free it, or: make demo DEMO_PORT=xxxx"; exit 1; \
+	  fi; \
+	done
+	@echo ""
+	@echo "  ProofTamil dev stack"
+	@echo "  --------------------"
+	@echo "  test page  ->  http://localhost:$(DEMO_PORT)/dev-test.html   <-- open this"
+	@echo "  api        ->  http://localhost:8080"
+	@echo "  ml         ->  http://localhost:8081"
+	@test -f .env && echo "  keys       ->  .env loaded (model tiers ON)" \
+	              || echo "  keys       ->  none (.env absent; Tier 1 only)"
+	@echo ""
+	@trap 'kill 0' INT TERM EXIT; \
+	( cd apps/ml  && APP_ENV=dev ./.venv/bin/uvicorn app.main:app --port 8081 ) & \
+	( cd apps/api && APP_ENV=dev PORT=8080 ML_SERVICE_URL=http://localhost:8081 go run ./cmd/server ) & \
+	( cd apps/web && python3 -m http.server $(DEMO_PORT) ) & \
+	wait
+
 .PHONY: smoke
 smoke: ## Probe a running stack's health + readiness
 	@scripts/smoke-test.sh
