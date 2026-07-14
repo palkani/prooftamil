@@ -6,7 +6,7 @@ import { Extension } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { TextSelection } from "@tiptap/pm/state";
 
-import { ProofreadClient, suggestTamil } from "@/lib/api";
+import { API_BASE, ProofreadClient, suggestTamil } from "@/lib/api";
 import {
   type Draft,
   listDrafts,
@@ -105,6 +105,7 @@ export default function Editor() {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const imeAbort = useRef<AbortController | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const imageInput = useRef<HTMLInputElement>(null);
   const draftIdRef = useRef("");
   draftIdRef.current = draftId;
 
@@ -468,6 +469,41 @@ export default function Editor() {
     }
   };
 
+  /**
+   * OCR (§15). Sends the photo to the server vision path, drops the transcription into
+   * a NEW draft, and shows whatever the cascade found in it.
+   *
+   * A new draft rather than an insert: someone scanning a page expects a document, not
+   * their current work to have a photograph pasted into the middle of it.
+   */
+  const onOCR = async (file: File) => {
+    if (!editor) return;
+    setNotice(`reading ${file.name}…`);
+    try {
+      const fd = new FormData();
+      fd.append("image", file);
+      const r = await fetch(`${API_BASE}/api/v1/ocr`, { method: "POST", body: fd });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? `HTTP ${r.status}`);
+
+      if (!d.text) {
+        setNotice(d.warning ?? "no Tamil text found in that image");
+        return;
+      }
+
+      setDraftId(newId());
+      editor.commands.setContent(toHtml(d.text));
+
+      const conf = Math.round((d.confidence ?? 0) * 100);
+      setNotice(
+        `scanned (${conf}% legible)` +
+          (conf < 70 ? " — low confidence, please check it against the original" : ""),
+      );
+    } catch (e) {
+      setNotice((e as Error).message);
+    }
+  };
+
   const onExport = async (fmt: "txt" | "docx" | "pdf") => {
     if (!editor) return;
     const text = editor.getText();
@@ -502,6 +538,19 @@ export default function Editor() {
               const f = e.target.files?.[0];
               if (f) onImport(f);
               e.target.value = ""; // so the same file can be picked twice
+            }}
+          />
+
+          <button onClick={() => imageInput.current?.click()}>📷 Scan</button>
+          <input
+            ref={imageInput}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onOCR(f);
+              e.target.value = "";
             }}
           />
 

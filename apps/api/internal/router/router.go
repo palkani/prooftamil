@@ -16,6 +16,7 @@ func New(
 	proofread *handlers.Proofread,
 	suggest *handlers.Suggest,
 	writer *handlers.Writer,
+	ocr *handlers.OCR,
 ) *gin.Engine {
 	if cfg.AppEnv != "dev" {
 		gin.SetMode(gin.ReleaseMode)
@@ -74,6 +75,11 @@ func New(
 		// unauthenticated and user-independent: identical for everyone, cacheable at
 		// the edge, and impossible to turn into a per-user keystroke log.
 		v1.GET("/suggest", suggest.Handle)
+
+		// §15.3 — OCR. The image is transient: never persisted, never logged.
+		if ocr != nil {
+			v1.POST("/ocr", ocr.Handle)
+		}
 
 		// §16.3 — the AI Content Writer. Pro-gated, all modes streamed.
 		if writer != nil {

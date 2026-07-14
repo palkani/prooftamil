@@ -18,6 +18,7 @@ import (
 	"github.com/prooftamil/api/internal/config"
 	"github.com/prooftamil/api/internal/corrector"
 	"github.com/prooftamil/api/internal/handlers"
+	"github.com/prooftamil/api/internal/ocr"
 	"github.com/prooftamil/api/internal/router"
 	"github.com/prooftamil/api/internal/writer"
 )
@@ -106,6 +107,7 @@ func run() error {
 			handlers.NewProofread(orch),
 			handlers.NewSuggest(cfg.MLServiceURL, clients.HTTP),
 			buildWriter(cfg, clients, orch, log),
+			buildOCR(cfg, orch, log),
 		),
 		ReadHeaderTimeout: 10 * time.Second,
 		// No WriteTimeout: the SSE streaming routes (§7.2) are long-lived and a
@@ -235,6 +237,21 @@ func buildModelTier(cfg *config.Config, httpc *http.Client, log *slog.Logger) (c
 		"verify_below", cfg.ConfidenceGate, "tier1_only", cfg.Tier1Only)
 
 	return corrector.NewRouter(primary, fallback, cfg.ModelTimeout, log, opts...), nil
+}
+
+// buildOCR assembles the server OCR path (§15.1).
+//
+// The vision model, not Tesseract. Tesseract is poor at cursive Tamil, which is the
+// case the server path exists for at all — printed text is better served by the CLIENT
+// path (tesseract.js), where the image never leaves the device and costs nothing.
+func buildOCR(cfg *config.Config, orch *cascade.Orchestrator, log *slog.Logger) *handlers.OCR {
+	if cfg.GeminiAPIKey == "" {
+		log.Warn("no Gemini key; server-side OCR is disabled (the browser path still works)")
+		return nil
+	}
+	reader := ocr.NewVisionOCR(cfg.GeminiAPIKey, cfg.GeminiBaseURL, cfg.GeminiModel, nil)
+	log.Info("OCR enabled", "model", cfg.GeminiModel, "path", "server/vision")
+	return handlers.NewOCR(reader, orch, log)
 }
 
 // buildWriter assembles the AI Content Writer (§16). Returns nil — and the routes are
