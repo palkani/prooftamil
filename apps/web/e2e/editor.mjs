@@ -90,7 +90,10 @@ check("draft is listed", (await page.locator(".pt-draft").count()) > 0);
 /* --- import --------------------------------------------------------------- */
 const fixture = "/tmp/pt-e2e-import.txt";
 fs.writeFileSync(fixture, "அந்த பையன் வந்தான்.\nஇது இரண்டாவது வரி.");
-await page.locator("input[type=file]").setInputFiles(fixture);
+// Target the DOCUMENT input explicitly. A bare input[type=file] selector broke the
+// moment the OCR image input was added — two matches, and Playwright's strict mode
+// (correctly) refuses to guess which one you meant.
+await page.locator('[data-testid="doc-input"]').setInputFiles(fixture);
 await page.waitForTimeout(1200);
 const imported = await page.locator(".pt-editor").innerText();
 check("import .txt", imported.includes("இரண்டாவது"));

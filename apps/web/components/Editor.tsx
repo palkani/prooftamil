@@ -531,6 +531,7 @@ export default function Editor() {
           <button onClick={() => fileInput.current?.click()}>Import</button>
           <input
             ref={fileInput}
+            data-testid="doc-input"
             type="file"
             accept=".txt,.md,.docx,.pdf"
             hidden
@@ -544,6 +545,7 @@ export default function Editor() {
           <button onClick={() => imageInput.current?.click()}>📷 Scan</button>
           <input
             ref={imageInput}
+            data-testid="image-input"
             type="file"
             accept="image/*"
             hidden
