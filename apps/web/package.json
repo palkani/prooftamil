@@ -8,7 +8,8 @@
     "start": "next start -p 4000",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "e2e": "node e2e/editor.mjs"
+    "e2e": "node e2e/editor.mjs",
+    "clean": "rm -rf .next .next-build"
   },
   "dependencies": {
     "@tiptap/pm": "^2.11.0",

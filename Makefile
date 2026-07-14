@@ -141,5 +141,6 @@ lexicon: ## Rebuild the lexicon from a Tamil Wikipedia dump (WIKI=path/to/dump.x
 	  --out packages/tamil-rules/dictionaries/corpus.txt.gz
 
 .PHONY: clean
-clean:
-	rm -rf apps/api/bin apps/web/.next .ruff_cache
+clean: ## Remove build artifacts (fixes a corrupted Next.js cache)
+	rm -rf apps/api/bin apps/web/.next apps/web/.next-build .ruff_cache
+	@echo "cleaned. If the editor was showing 'Cannot find module ./NNN.js', that is fixed."

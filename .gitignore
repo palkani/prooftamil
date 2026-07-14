@@ -47,3 +47,4 @@ eval/holdout.txt
 apps/web/.next/
 apps/web/next-env.d.ts
 apps/web/tsconfig.tsbuildinfo
+apps/web/.next-build/
