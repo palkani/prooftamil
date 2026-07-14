@@ -1,0 +1,53 @@
+# Local guardrails. CI re-runs all of this — these hooks just catch it earlier.
+# Install once: pip install pre-commit && pre-commit install
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+
+  # The secret fence. .gitignore is the first line; this is the second; the
+  # gitleaks CI job is the third.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^apps/ml/
+      - id: ruff-format
+        files: ^apps/ml/
+
+  - repo: local
+    hooks:
+      - id: gofmt
+        name: gofmt
+        entry: bash -c 'cd apps/api && gofmt -l . | (! grep .)'
+        language: system
+        files: \.go$
+        pass_filenames: false
+
+      - id: go-vet
+        name: go vet
+        entry: bash -c 'cd apps/api && go vet ./...'
+        language: system
+        files: \.go$
+        pass_filenames: false
+
+      # The .env.example files are generated from infra/env-manifest.yaml.
+      # Editing the manifest without regenerating them is the drift this catches.
+      - id: env-example-sync
+        name: .env.example in sync with manifest
+        entry: bash -c './.venv-tools/bin/python scripts/envctl.py gen-example && git diff --exit-code -- "apps/*/.env.example"'
+        language: system
+        files: ^(infra/env-manifest\.yaml|scripts/envctl\.py)$
+        pass_filenames: false

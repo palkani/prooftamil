@@ -1,0 +1,40 @@
+# --- secrets: never commit. gitleaks in CI is the backstop, this is the fence. ---
+.env
+.env.*
+!.env.example
+*.tfvars
+!*.tfvars.example
+secrets.auto.tfvars
+*-key.json
+*_rsa
+*.pem
+
+# --- dependencies ---
+node_modules/
+.venv/
+.venv-tools/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# --- build output ---
+bin/
+dist/
+.next/
+out/
+*.exe
+
+# --- terraform ---
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+
+# --- tooling / os ---
+.DS_Store
+coverage.out
+*.log
+.ruff_cache/
+.pytest_cache/

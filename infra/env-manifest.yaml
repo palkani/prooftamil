@@ -1,0 +1,116 @@
+
+# ProofTamil env-var manifest — the single source of truth for plan §3.
+#
+# This file drives everything:
+#   - scripts/set-env.sh  reads it to push config + secret bindings to Cloud Run
+#   - scripts/gen-env-example.sh  reads it to regenerate every app's .env.example
+#   - Terraform reads it to declare the Secret Manager secrets in §4
+#
+# Rules enforced by the tooling:
+#   type: config  -> a literal value, set as a plain Cloud Run env var.
+#   type: secret  -> NEVER has a value here. Only a Secret Manager name. The raw
+#                    value is pasted once into Secret Manager by a human (§4) and
+#                    bound to the service as KEY=projects/<p>/secrets/<s>:latest.
+#
+# `value` supports ${ENV} interpolation and per-env overrides via `values:`.
+
+services:
+  api:
+    description: Go serving plane (cascade orchestrator, ModelRouter)
+    vars:
+      - { key: PORT,           type: config, value: "8080" }
+      - { key: APP_ENV,        type: config, value: "${ENV}" }
+      - { key: PRIMARY_REGION, type: config, value: "asia-south1" }
+      - { key: SERVICE_REGION, type: config, value: "${REGION}" }
+      - { key: LOG_LEVEL,      type: config, values: { dev: debug, staging: info, prod: info } }
+      - key: APP_BASE_URL
+        type: config
+        values:
+          dev: "http://localhost:3000"
+          staging: "https://staging.prooftamil.com"
+          prod: "https://www.prooftamil.com"
+
+      # Auth — RS256 (§12). Private key issues, public key verifies.
+      - { key: JWT_PRIVATE_KEY, type: secret, secret: jwt-private-key }
+      - { key: JWT_PUBLIC_KEY,  type: secret, secret: jwt-public-key }
+      - { key: JWT_ACCESS_TTL,  type: config, value: "15m" }
+      - { key: JWT_REFRESH_TTL, type: config, value: "168h" }
+
+      # Data plane
+      - { key: DATABASE_URL,      type: secret, secret: database-url }
+      - { key: DATABASE_READ_URL, type: secret, secret: database-read-url }
+      - { key: REDIS_URL,         type: secret, secret: redis-url }
+      - { key: QDRANT_URL,        type: config, value: "${QDRANT_URL}" }
+      - { key: QDRANT_API_KEY,    type: secret, secret: qdrant-api-key }
+      - { key: ML_SERVICE_URL,    type: config, value: "${ML_SERVICE_URL}" }
+
+      # Models (§8)
+      - { key: SARVAM_API_KEY,  type: secret, secret: sarvam-api-key }
+      - { key: SARVAM_BASE_URL, type: config, value: "https://api.sarvam.ai" }
+      - { key: GEMINI_API_KEY,  type: secret, secret: gemini-api-key }
+      - { key: GEMINI_BASE_URL, type: config, value: "https://generativelanguage.googleapis.com" }
+
+      # Cascade tuning (§3.1)
+      - { key: MODEL_ROUTER_CONFIG,           type: config, value: "{}" }
+      - { key: SEMANTIC_SIMILARITY_THRESHOLD, type: config, value: "0.92" }
+      - { key: CACHE_TTL_SECONDS,             type: config, value: "604800" }
+      - { key: HEDGE_DELAY_MS,                type: config, value: "800" }
+      - { key: CONFIDENCE_GATE,               type: config, value: "0.85" }
+
+      # Billing + email
+      - { key: DODO_API_KEY,        type: secret, secret: dodo-api-key }
+      - { key: DODO_WEBHOOK_SECRET, type: secret, secret: dodo-webhook-secret }
+      - { key: RESEND_API_KEY,      type: secret, secret: resend-api-key }
+      - { key: SENDGRID_API_KEY,    type: secret, secret: sendgrid-api-key }
+
+      # Storage (R2)
+      - { key: R2_ACCESS_KEY_ID,     type: secret, secret: r2-access-key-id }
+      - { key: R2_SECRET_ACCESS_KEY, type: secret, secret: r2-secret-access-key }
+      - { key: R2_BUCKET,            type: config, value: "prooftamil-exports" }
+      - { key: R2_ENDPOINT,          type: config, value: "${R2_ENDPOINT}" }
+
+      # Ops
+      - { key: OTEL_EXPORTER_OTLP_ENDPOINT, type: config, value: "${OTEL_ENDPOINT}" }
+      - { key: SENTRY_DSN,     type: secret, secret: sentry-dsn }
+      - { key: CLICKHOUSE_DSN, type: secret, secret: clickhouse-dsn }
+      - { key: ADMIN_EMAILS,   type: config, value: "${ADMIN_EMAILS}" }
+
+  ml:
+    description: Python FastAPI ML service (ThamizhiMorph/UDp, embeddings)
+    vars:
+      - { key: PORT,               type: config, value: "8081" }
+      - { key: APP_ENV,            type: config, value: "${ENV}" }
+      - { key: SERVICE_REGION,     type: config, value: "${REGION}" }
+      - { key: LOG_LEVEL,          type: config, values: { dev: debug, staging: info, prod: info } }
+      - { key: EMBEDDING_MODEL,    type: config, value: "intfloat/multilingual-e5-base" }
+      - { key: MODEL_CACHE_DIR,    type: config, value: "/models" }
+      - { key: THAMIZHI_DATA_PATH, type: config, value: "/data/thamizhi" }
+      - { key: MAX_BATCH,          type: config, value: "16" }
+      - { key: WORKERS,            type: config, value: "2" }
+
+  worker:
+    description: Temporal workers (drip emails, billing, training pipeline)
+    vars:
+      - { key: APP_ENV,            type: config, value: "${ENV}" }
+      - { key: TEMPORAL_HOST,      type: config, value: "${TEMPORAL_HOST}" }
+      - { key: TEMPORAL_NAMESPACE, type: config, value: "prooftamil-${ENV}" }
+      - { key: TASK_QUEUE,         type: config, value: "prooftamil-tasks" }
+      - { key: DATABASE_URL,       type: secret, secret: database-url }
+      - { key: DODO_API_KEY,       type: secret, secret: dodo-api-key }
+      - { key: DODO_WEBHOOK_SECRET, type: secret, secret: dodo-webhook-secret }
+      - { key: RESEND_API_KEY,     type: secret, secret: resend-api-key }
+      - { key: SENDGRID_API_KEY,   type: secret, secret: sendgrid-api-key }
+      - { key: R2_ACCESS_KEY_ID,     type: secret, secret: r2-access-key-id }
+      - { key: R2_SECRET_ACCESS_KEY, type: secret, secret: r2-secret-access-key }
+
+  web:
+    description: Next.js frontend. Deployed via Vercel/Pages CLI, not Cloud Run.
+    platform: vercel
+    vars:
+      # NOTE: everything here ships to the browser. Model API keys must NEVER
+      # appear in this service — the plan is explicit about that (§3.4).
+      - { key: NEXT_PUBLIC_API_BASE,     type: config, value: "${API_BASE}" }
+      - { key: NEXT_PUBLIC_APP_URL,      type: config, value: "${APP_BASE_URL}" }
+      - { key: NEXT_PUBLIC_CLARITY_ID,   type: config, value: "${CLARITY_ID}" }
+      - { key: NEXT_PUBLIC_SUPABASE_URL, type: config, value: "${SUPABASE_URL}" }
+      - { key: NEXT_PUBLIC_SUPABASE_ANON_KEY, type: config, value: "${SUPABASE_ANON_KEY}" }

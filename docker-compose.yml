@@ -1,0 +1,67 @@
+# Local dev stack: the full cascade's backing services, no cloud account needed.
+# `docker compose up` gives you Postgres + Redis + Qdrant + api + ml.
+#
+# Cloud parity note: managed Postgres/Redis/Qdrant replace these in every
+# deployed env (§5). Nothing here is used above dev.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: prooftamil
+      POSTGRES_PASSWORD: localdev
+      POSTGRES_DB: prooftamil
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prooftamil"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Tier 2 semantic cache.
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports: ["6333:6333"]
+    volumes: ["qdrantdata:/qdrant/storage"]
+
+  ml:
+    build:
+      context: .
+      dockerfile: infra/docker/ml.Dockerfile
+    environment:
+      APP_ENV: dev
+      PORT: "8081"
+      LOG_LEVEL: debug
+    ports: ["8081:8081"]
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/api.Dockerfile
+    environment:
+      APP_ENV: dev
+      PORT: "8080"
+      LOG_LEVEL: debug
+      DATABASE_URL: postgres://prooftamil:localdev@postgres:5432/prooftamil?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      ML_SERVICE_URL: http://ml:8081
+    ports: ["8080:8080"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      ml: { condition: service_started }
+
+volumes:
+  pgdata:
+  qdrantdata:

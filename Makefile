@@ -1,0 +1,85 @@
+.DEFAULT_GOAL := help
+SHELL := /bin/bash
+
+TOOLS_PY := ./.venv-tools/bin/python
+ML_PY    := ./apps/ml/.venv/bin/python
+ENV      ?= dev
+REGION   ?= asia-south1
+
+.PHONY: help
+help: ## Show available targets
+	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
+		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
+
+# ---------------------------------------------------------------- setup
+
+.PHONY: bootstrap
+bootstrap: ## Install all local toolchains (idempotent)
+	python3 -m venv .venv-tools && ./.venv-tools/bin/pip install -q --upgrade pip pyyaml
+	cd apps/ml && python3 -m venv .venv && ./.venv/bin/pip install -q --upgrade pip && ./.venv/bin/pip install -q -e ".[dev]"
+	cd apps/api && go mod download
+	@echo "bootstrap complete"
+
+# ---------------------------------------------------------------- dev
+
+.PHONY: dev
+dev: ## Run api + ml locally (Ctrl-C stops both)
+	@echo "api  -> http://localhost:8080/internal/health"
+	@echo "ml   -> http://localhost:8081/health"
+	@trap 'kill 0' INT TERM EXIT; \
+	( cd apps/ml  && APP_ENV=dev ./.venv/bin/uvicorn app.main:app --port 8081 --reload ) & \
+	( cd apps/api && APP_ENV=dev PORT=8080 ML_SERVICE_URL=http://localhost:8081 go run ./cmd/server ) & \
+	wait
+
+.PHONY: smoke
+smoke: ## Probe a running stack's health + readiness
+	@scripts/smoke-test.sh
+
+# ---------------------------------------------------------------- quality
+
+.PHONY: build
+build: ## Compile every service
+	cd apps/api && go build ./...
+
+.PHONY: test
+test: ## Run all tests
+	cd apps/api && go test ./...
+	cd apps/ml  && ./.venv/bin/pytest -q
+
+.PHONY: lint
+lint: ## Lint every language
+	cd apps/api && go vet ./... && gofmt -l . | (! grep .) || (echo "gofmt: files need formatting"; exit 1)
+	cd apps/ml  && ./.venv/bin/ruff check .
+
+.PHONY: fmt
+fmt: ## Auto-format
+	cd apps/api && gofmt -w .
+	cd apps/ml  && ./.venv/bin/ruff check --fix . && ./.venv/bin/ruff format .
+
+# ---------------------------------------------------------------- env automation (§3)
+
+.PHONY: env-example
+env-example: ## Regenerate every app's .env.example from the manifest
+	$(TOOLS_PY) scripts/envctl.py gen-example
+
+.PHONY: secrets
+secrets: ## List the Secret Manager secrets required for ENV
+	$(TOOLS_PY) scripts/envctl.py secrets --env $(ENV)
+
+.PHONY: set-env
+set-env: ## Dry-run pushing all env vars to Cloud Run (ENV=, REGION=)
+	$(TOOLS_PY) scripts/envctl.py set-env --env $(ENV) --region $(REGION)
+
+.PHONY: set-env-apply
+set-env-apply: ## Actually push all env vars to Cloud Run (ENV=, REGION=)
+	$(TOOLS_PY) scripts/envctl.py set-env --env $(ENV) --region $(REGION) --apply
+
+# ---------------------------------------------------------------- eval (§11)
+
+.PHONY: eval
+eval: ## Run the accuracy harness over the labeled Tamil test set
+	@echo "eval harness lands in Phase 1 (§11)"
+
+.PHONY: clean
+clean:
+	rm -rf apps/api/bin apps/web/.next .ruff_cache
