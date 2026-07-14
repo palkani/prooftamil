@@ -42,22 +42,31 @@ def test_confusable_variants_preserve_vowel_signs():
 # --- true positives --------------------------------------------------------
 
 def test_corrects_a_nonword_to_a_word(engine: TamilEngine):
-    # பரவை is not a word; பறவை (bird) is. One ர->ற swap connects them.
-    out = engine.analyze("அது ஒரு பரவை")
+    # வனிகர்கள் is not a word (0 corpus occurrences); வணிகர்கள் (merchants) is
+    # (628). One ன->ண swap connects them, and the frequency ratio is decisive.
+    out = engine.analyze("அவர்கள் வனிகர்கள்")
     spelling = [s for s in out if s.type == "spelling"]
     assert len(spelling) == 1
 
     s = spelling[0]
-    assert s.original == "பரவை"
-    assert s.suggestion == "பறவை"
+    assert s.original == "வனிகர்கள்"
+    assert s.suggestion == "வணிகர்கள்"
     assert s.confidence >= 0.85
     assert s.source_tier == 1
 
 
 def test_offsets_point_at_the_offending_word(engine: TamilEngine):
-    text = "அது ஒரு பரவை"
+    text = "அவர்கள் வனிகர்கள்"
     s = next(s for s in engine.analyze(text) if s.type == "spelling")
-    assert text[s.start:s.end] == "பரவை"
+    assert text[s.start:s.end] == "வனிகர்கள்"
+
+
+def test_does_not_correct_a_rare_real_word(engine: TamilEngine):
+    # பரவை (sea/expanse) is a REAL but uncommon word, 84 corpus occurrences, and
+    # sits one ர->ற swap from the far more common பறவை (bird). An earlier version
+    # of this suite asserted the opposite — the corpus proved the test wrong.
+    # This is exactly the proper-noun/rare-word class the frequency ratio guards.
+    assert [s for s in engine.analyze("அது ஒரு பரவை") if s.type == "spelling"] == []
 
 
 # --- FALSE-POSITIVE GUARDS (the important ones) ----------------------------

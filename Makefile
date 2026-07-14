@@ -80,6 +80,16 @@ set-env-apply: ## Actually push all env vars to Cloud Run (ENV=, REGION=)
 eval: ## Run the accuracy harness over the labeled Tamil test set (§11)
 	$(ML_PY) eval/run.py
 
+.PHONY: audit
+audit: ## Held-out false-positive audit on real Tamil prose (RISK R1)
+	$(ML_PY) eval/corpus_audit.py
+
+.PHONY: lexicon
+lexicon: ## Rebuild the lexicon from a Tamil Wikipedia dump (WIKI=path/to/dump.xml.bz2)
+	@test -n "$(WIKI)" || (echo "usage: make lexicon WIKI=tawiki-latest-pages-articles.xml.bz2"; exit 1)
+	$(ML_PY) scripts/build-lexicon.py --wiki $(WIKI) \
+	  --out packages/tamil-rules/dictionaries/corpus.txt.gz
+
 .PHONY: clean
 clean:
 	rm -rf apps/api/bin apps/web/.next .ruff_cache

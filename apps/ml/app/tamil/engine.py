@@ -54,6 +54,15 @@ _CONF_UNAMBIGUOUS = 0.90
 # suppressed unless an operator lowers the gate.
 _CONF_AMBIGUOUS = 0.55
 
+# How much more common a candidate must be than the word actually typed before we
+# dare correct it. Guards proper nouns and rare real words, which are
+# out-of-vocabulary but sit at a frequency comparable to their neighbours — unlike
+# a true typo, which is swamped by its correction. See _spelling().
+#
+# Curated seed words carry an effectively infinite count, so a hand-vouched word is
+# never overruled by this and a correction TO one always clears the bar.
+_MIN_RATIO = 20
+
 
 @dataclass
 class Suggestion:
@@ -116,6 +125,34 @@ class TamilEngine:
                 # rare word, or a typo we cannot repair — all indistinguishable
                 # from here. Say nothing; the model tiers get a shot at it.
                 continue
+
+            # --- the proper-noun guard -----------------------------------
+            #
+            # Being out-of-vocabulary is not enough. Tamil proper nouns are
+            # endless and most are rare, so a place name like திருக்காணூர் is
+            # out-of-vocabulary AND one ண->ன swap from the real word திருக்கானூர்.
+            # On the evidence so far it looks exactly like a typo, and the engine
+            # would confidently rewrite someone's town.
+            #
+            # What separates the two is the frequency RATIO. A genuine typo is
+            # vanishingly rare next to its correction (அணைவருக்கும் appears once;
+            # அனைவருக்கும் thousands of times). A rare real word sits at a
+            # comparable frequency to its confusable neighbour, because both are
+            # simply uncommon.
+            #
+            # So: only correct when the candidate is overwhelmingly more common
+            # than what the writer actually typed.
+            observed = self.lexicon.count(tok.text)
+            hits = [
+                h for h in hits
+                if self.lexicon.count(h[0]) >= _MIN_RATIO * max(observed, 1)
+            ]
+            if not hits:
+                continue
+
+            # Prefer the most frequent candidate: with several valid corrections,
+            # the common word is the likelier intent.
+            hits.sort(key=lambda h: self.lexicon.count(h[0]), reverse=True)
 
             best, _idx, src, dst = hits[0]
             unambiguous = len(hits) == 1

@@ -38,3 +38,7 @@ coverage.out
 *.log
 .ruff_cache/
 .pytest_cache/
+
+# lexicon build artifacts — the .gz versions are committed, not these
+packages/tamil-rules/dictionaries/corpus.txt
+eval/holdout.txt

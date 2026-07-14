@@ -34,13 +34,13 @@ def test_analyze_returns_no_suggestions_for_a_clean_sentence():
 
 
 def test_analyze_surfaces_a_tier1_correction_over_http():
-    r = client.post("/analyze", json={"target": "அது ஒரு பரவை"})
+    r = client.post("/analyze", json={"target": "அவர்கள் வனிகர்கள்"})
     assert r.status_code == 200
     body = r.json()
 
     s = body["suggestions"][0]
-    assert s["original"] == "பரவை"
-    assert s["suggestion"] == "பறவை"   # ர -> ற
+    assert s["original"] == "வனிகர்கள்"
+    assert s["suggestion"] == "வணிகர்கள்"   # ன -> ண
     assert s["type"] == "spelling"
     assert s["source_tier"] == 1
     assert body["resolved"] is False

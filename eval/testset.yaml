@@ -100,12 +100,24 @@ cases:
     note: Whitespace-only input must not crash.
 
   # ------------------------------------------------------- spelling (ர / ற)
-  - text: "அது ஒரு பரவை."
+  - text: "அவர்கள் வனிகர்கள்."
     expect:
-      - original: "பரவை"
-        suggestion: "பறவை"
+      - original: "வனிகர்கள்"
+        suggestion: "வணிகர்கள்"
         type: spelling
-    note: Non-word; one ர->ற swap reaches பறவை (bird). Unambiguous.
+    note: >
+      Non-word; one ன->ண swap reaches வணிகர்கள் (merchants). Corpus-verified:
+      வனிகர்கள் appears 0 times, வணிகர்கள் 628 times. This replaced an earlier
+      case that assumed பரவை was a non-word — the corpus proved it is real
+      (84 occurrences, "sea/expanse"). See the silence case below.
+
+  - text: "அது ஒரு பரவை."
+    expect: []
+    note: >
+      REGRESSION GUARD, learned from the corpus. This case originally asserted
+      பரவை -> பறவை (bird). It was wrong: பரவை is a real Tamil word (sea/expanse,
+      84 corpus occurrences). Hand-written test sets encode the author's blind
+      spots; the engine must stay silent here.
 
   # ------------------------------------------------------- sandhi (வல்லினம்)
   - text: "அந்த பையன் வந்தான்."
@@ -144,20 +156,24 @@ cases:
     note: வ is not a வல்லினம். No doubling.
 
   # ------------------------------------------------------------- multi-error
-  - text: "அந்த பையன் ஒரு பரவை பார்த்தான்."
+  - text: "அந்த பண்னைகள் பெரியவை."
     expect:
       - original: "அந்த"
         suggestion: "அந்தப்"
         type: sandhi
-      - original: "பரவை"
-        suggestion: "பறவை"
+      - original: "பண்னைகள்"
+        suggestion: "பண்ணைகள்"
         type: spelling
-    note: Both rule families in one sentence; offsets must stay correct.
+    note: >
+      Both rule families in one sentence; offsets must stay correct. The misspelled
+      word must itself begin with a வல்லினம் (ப) for the sandhi rule to co-fire —
+      an earlier draft used வனிகர்கள், which begins with வ, so no doubling applies
+      and the gold was simply wrong.
 
   # ------------------------------------------------------------ multi-sentence
-  - text: "நான் வந்தேன். அது ஒரு பரவை."
+  - text: "நான் வந்தேன். அவர்கள் வனிகர்கள்."
     expect:
-      - original: "பரவை"
-        suggestion: "பறவை"
+      - original: "வனிகர்கள்"
+        suggestion: "வணிகர்கள்"
         type: spelling
     note: Offsets must map onto the DOCUMENT, not the sentence.

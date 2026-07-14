@@ -73,6 +73,9 @@ jobs:
       # that makes Tier 1 chattier fails the build: showing a writer a confident
       # wrong "correction" of their good Tamil costs more trust than a miss.
       - run: python eval/run.py
+      # Held-out FP audit (RISK R1): the lexicon ships gzipped in-repo, so this
+      # needs no corpus download and stays hermetic.
+      - run: python eval/corpus_audit.py --show 0
 
   env-manifest:
     name: env manifest (§3)
