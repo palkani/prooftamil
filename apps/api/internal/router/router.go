@@ -8,7 +8,7 @@ import (
 	"github.com/prooftamil/api/internal/handlers"
 )
 
-func New(cfg *config.Config, health *handlers.Health) *gin.Engine {
+func New(cfg *config.Config, health *handlers.Health, proofread *handlers.Proofread) *gin.Engine {
 	if cfg.AppEnv != "dev" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -31,10 +31,14 @@ func New(cfg *config.Config, health *handlers.Health) *gin.Engine {
 	}
 
 	// §7 — the versioned public API. Routes are added per phase:
-	//   Phase 1: /proofread, /proofread/stream
 	//   Phase 4: /drafts/*, /export, /import
 	//   Phase 6: /auth/*, /billing/*, /webhooks/dodo
-	_ = r.Group("/api/v1")
+	v1 := r.Group("/api/v1")
+	{
+		// §7.2 — the cascade.
+		v1.POST("/proofread", proofread.Sync)
+		v1.GET("/proofread/stream", proofread.Stream)
+	}
 
 	return r
 }

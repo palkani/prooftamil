@@ -13,6 +13,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/prooftamil/api/internal/cache"
+	"github.com/prooftamil/api/internal/cascade"
 	"github.com/prooftamil/api/internal/config"
 	"github.com/prooftamil/api/internal/handlers"
 	"github.com/prooftamil/api/internal/router"
@@ -76,9 +78,22 @@ func run() error {
 	}
 	log.Info("dependencies registered", "deps", names)
 
+	// The cascade (§9, Phase 1). cacheVersion salts every cache key: bump it
+	// whenever the rules, lexicon, prompts, models or confidence gate change, or
+	// the cache will keep serving corrections produced by the OLD engine for a
+	// full CACHE_TTL_SECONDS (a week by default).
+	const cacheVersion = "1"
+
+	orch := cascade.NewOrchestrator(
+		cascade.NewMLClient(cfg.MLServiceURL, clients.HTTP),
+		cache.NewExact(clients.Redis, cfg.CacheTTL, cacheVersion),
+		cfg.ConfidenceGate,
+		log,
+	)
+
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           router.New(cfg, handlers.NewHealth(cfg, deps)),
+		Handler:           router.New(cfg, handlers.NewHealth(cfg, deps), handlers.NewProofread(orch)),
 		ReadHeaderTimeout: 10 * time.Second,
 		// No WriteTimeout: the SSE streaming routes (§7.2) are long-lived and a
 		// write deadline would sever them mid-stream.
