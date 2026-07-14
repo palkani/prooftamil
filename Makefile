@@ -22,10 +22,19 @@ bootstrap: ## Install all local toolchains (idempotent)
 
 # ---------------------------------------------------------------- dev
 
+# Local secrets. Git-ignored; see .env.
+# Exported so the services inherit them without any key ever appearing on a
+# command line (where it would land in shell history and `ps` output).
+ifneq (,$(wildcard .env))
+include .env
+export
+endif
+
 .PHONY: dev
-dev: ## Run api + ml locally (Ctrl-C stops both)
+dev: ## Run api + ml locally (Ctrl-C stops both). Loads .env if present.
 	@echo "api  -> http://localhost:8080/internal/health"
 	@echo "ml   -> http://localhost:8081/health"
+	@test -f .env && echo "secrets -> .env loaded" || echo "secrets -> none (.env absent; models disabled)"
 	@trap 'kill 0' INT TERM EXIT; \
 	( cd apps/ml  && APP_ENV=dev ./.venv/bin/uvicorn app.main:app --port 8081 --reload ) & \
 	( cd apps/api && APP_ENV=dev PORT=8080 ML_SERVICE_URL=http://localhost:8081 go run ./cmd/server ) & \

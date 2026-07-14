@@ -153,20 +153,23 @@ func buildModelTier(cfg *config.Config, httpc *http.Client, log *slog.Logger) (c
 		return nil, err
 	}
 
-	// A 20s client timeout would let one slow sentence hold a user's editor. The
-	// hedge (HEDGE_DELAY_MS) is the real latency control; this is just a backstop.
-	modelHTTP := &http.Client{Timeout: 20 * time.Second}
+	// 60s, not 20s: measured against the live Sarvam API, a single sentence takes
+	// 7-18s because the model always emits an undisableable reasoning trace. A 20s
+	// timeout would sever answers that were about to arrive. The hedge
+	// (HEDGE_DELAY_MS) is the real latency control; this is only a backstop.
+	modelHTTP := &http.Client{Timeout: 60 * time.Second}
 
 	var primary, fallback corrector.Corrector
 	var verifier corrector.Verifier
 
 	if cfg.SarvamAPIKey != "" {
 		primary = corrector.NewSarvam(
-			cfg.SarvamAPIKey, cfg.SarvamBaseURL, "sarvam-m", correctorPrompt, modelHTTP)
+			cfg.SarvamAPIKey, cfg.SarvamBaseURL, cfg.SarvamModel, cfg.SarvamMaxTokens,
+			correctorPrompt, modelHTTP)
 	}
 	if cfg.GeminiAPIKey != "" {
 		g := corrector.NewGemini(
-			cfg.GeminiAPIKey, cfg.GeminiBaseURL, "gemini-2.5-flash",
+			cfg.GeminiAPIKey, cfg.GeminiBaseURL, cfg.GeminiModel,
 			correctorPrompt, verifierPrompt, modelHTTP)
 		fallback = g
 		verifier = g

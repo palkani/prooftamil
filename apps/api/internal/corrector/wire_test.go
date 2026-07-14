@@ -41,7 +41,7 @@ func TestSarvamParsesAChatCompletion(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	s := NewSarvam("sk-test", srv.URL, "sarvam-m", testPrompt(), srv.Client())
+	s := NewSarvam("sk-test", srv.URL, "sarvam-30b", 4096, testPrompt(), srv.Client())
 
 	resp, err := s.Correct(context.Background(), Request{Target: target, ContextBefore: "முன்"})
 	if err != nil {
@@ -54,9 +54,11 @@ func TestSarvamParsesAChatCompletion(t *testing.T) {
 	if gotAuth != "Bearer sk-test" {
 		t.Errorf("auth header = %q", gotAuth)
 	}
-	// JSON mode must be requested at the API level, not merely asked for in prose.
-	if gotBody.ResponseFormat == nil || gotBody.ResponseFormat.Type != "json_object" {
-		t.Error("Sarvam must be asked for JSON via response_format")
+	// max_tokens must ALWAYS be sent. Sarvam's models are reasoning models and the
+	// chain-of-thought counts against the budget; at the provider default the
+	// reasoning routinely eats it all and the answer never gets written.
+	if gotBody.MaxTokens <= 0 {
+		t.Error("max_tokens must be set explicitly — the reasoning trace consumes the budget")
 	}
 	// The context sentence must reach the model, clearly marked do-not-correct.
 	if len(gotBody.Messages) != 2 || !strings.Contains(gotBody.Messages[1].Content, "do not correct") {
@@ -85,7 +87,7 @@ func TestSarvamSurfacesAnAPIError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	s := NewSarvam("sk-test", srv.URL, "sarvam-m", testPrompt(), srv.Client())
+	s := NewSarvam("sk-test", srv.URL, "sarvam-30b", 4096, testPrompt(), srv.Client())
 
 	_, err := s.Correct(context.Background(), Request{Target: target})
 	if err == nil {
@@ -107,7 +109,7 @@ func TestSarvamRejectsAHallucinatedSpanOverTheWire(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	s := NewSarvam("sk-test", srv.URL, "sarvam-m", testPrompt(), srv.Client())
+	s := NewSarvam("sk-test", srv.URL, "sarvam-30b", 4096, testPrompt(), srv.Client())
 
 	resp, err := s.Correct(context.Background(), Request{Target: target})
 	if err != nil {
@@ -115,6 +117,58 @@ func TestSarvamRejectsAHallucinatedSpanOverTheWire(t *testing.T) {
 	}
 	if len(resp.Suggestions) != 0 {
 		t.Error("a hallucinated span must be dropped even at 0.99 confidence")
+	}
+}
+
+// REGRESSION — found only by calling the live API.
+//
+// Sarvam's models are reasoning models. The chain-of-thought counts against
+// max_tokens, and on a long trace the model runs out of budget before writing the
+// answer: finish_reason="length", "content": null.
+//
+// If that decoded to an empty string it would sail through as ZERO SUGGESTIONS,
+// and the cascade would tell the writer their document is clean — a silent,
+// confident lie that would then be cached for a week. It has to be an error so the
+// router fails over to Gemini.
+func TestSarvamTruncatedReasoningIsAnErrorNotACleanDocument(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// The exact shape observed from the live API.
+		_, _ = io.WriteString(w, `{
+          "choices": [{"finish_reason": "length", "message": {"content": null, "reasoning_content": "...long chain of thought..."}}],
+          "usage": {"completion_tokens": 4096}
+        }`)
+	}))
+	defer srv.Close()
+
+	s := NewSarvam("sk-test", srv.URL, "sarvam-30b", 4096, testPrompt(), srv.Client())
+
+	resp, err := s.Correct(context.Background(), Request{Target: target})
+	if err == nil {
+		t.Fatalf("a null content / finish_reason=length MUST be an error, "+
+			"got a usable response with %d suggestions — this would report the "+
+			"document as clean", len(resp.Suggestions))
+	}
+	if !strings.Contains(err.Error(), "4096") {
+		t.Errorf("the error should name the token budget it blew: %v", err)
+	}
+}
+
+// A reply that was cut off MID-ANSWER is also refused: the suggestion list is
+// necessarily incomplete, and showing a partial set of corrections as if it were
+// the whole set is its own kind of lie.
+func TestSarvamTruncatedAnswerIsRefused(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{
+          "choices": [{"finish_reason": "length", "message": {"content": "{\"suggestions\":[{\"start\":0,\"end\":4,\"original\":\"அந்த\",\"suggestion\":\"அந்தப்\",\"type\":\"sandhi\",\"confidence\":0.9}]}"}}],
+          "usage": {"completion_tokens": 4096}
+        }`)
+	}))
+	defer srv.Close()
+
+	s := NewSarvam("sk-test", srv.URL, "sarvam-30b", 4096, testPrompt(), srv.Client())
+
+	if _, err := s.Correct(context.Background(), Request{Target: target}); err == nil {
+		t.Fatal("a truncated answer must be refused, not served as a complete set")
 	}
 }
 

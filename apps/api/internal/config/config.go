@@ -37,10 +37,13 @@ type Config struct {
 	MLServiceURL    string
 
 	// Models
-	SarvamAPIKey  string
-	SarvamBaseURL string
-	GeminiAPIKey  string
-	GeminiBaseURL string
+	SarvamAPIKey    string
+	SarvamBaseURL   string
+	SarvamModel     string
+	SarvamMaxTokens int
+	GeminiAPIKey    string
+	GeminiBaseURL   string
+	GeminiModel     string
 
 	// Cascade tuning
 	ModelRouterConfig           string
@@ -80,8 +83,12 @@ func Load() (*Config, error) {
 
 		SarvamAPIKey:  os.Getenv("SARVAM_API_KEY"),
 		SarvamBaseURL: env("SARVAM_BASE_URL", "https://api.sarvam.ai"),
+		// Model IDs are CONFIG, never constants: sarvam-m was deprecated out from
+		// under this code between writing it and the first live call.
+		SarvamModel:   env("SARVAM_MODEL", "sarvam-30b"),
 		GeminiAPIKey:  os.Getenv("GEMINI_API_KEY"),
 		GeminiBaseURL: env("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com"),
+		GeminiModel:   env("GEMINI_MODEL", "gemini-2.5-flash"),
 
 		ModelRouterConfig: env("MODEL_ROUTER_CONFIG", "{}"),
 
@@ -108,6 +115,11 @@ func Load() (*Config, error) {
 		errs = append(errs, err.Error())
 	}
 	if c.ConfidenceGate, err = envFloat("CONFIDENCE_GATE", 0.85); err != nil {
+		errs = append(errs, err.Error())
+	}
+	// 4096 is the ceiling on Sarvam's "starter" tier; the API rejects more. It must
+	// cover the model's (undisableable) reasoning trace AND the answer.
+	if c.SarvamMaxTokens, err = envInt("SARVAM_MAX_TOKENS", 4096); err != nil {
 		errs = append(errs, err.Error())
 	}
 
