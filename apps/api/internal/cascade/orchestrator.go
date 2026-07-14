@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"reflect"
 	"time"
 
 	"github.com/prooftamil/api/internal/cache"
@@ -39,6 +40,10 @@ type Orchestrator struct {
 	// sees them (CONFIDENCE_GATE, §3.1). Tier 1 reports ambiguous corrections at
 	// low confidence precisely so this gate can drop them.
 	confidenceGate float64
+
+	// telemetry is optional and MUST be non-blocking (§9, Phase 3).
+	telemetry Telemetry
+	region    string
 }
 
 func NewOrchestrator(tier1 Tier1, models ModelTier, c *cache.Exact, gate float64, log *slog.Logger) *Orchestrator {
@@ -46,6 +51,54 @@ func NewOrchestrator(tier1 Tier1, models ModelTier, c *cache.Exact, gate float64
 		log = slog.Default()
 	}
 	return &Orchestrator{tier1: tier1, models: models, cache: c, confidenceGate: gate, log: log}
+}
+
+// Telemetry is the event backbone, seen from the cascade (§9, Phase 3).
+//
+// Declared here as an interface rather than importing internal/events, so the dependency
+// runs one way and the orchestrator stays testable without a message broker.
+//
+// Every method MUST be non-blocking. The implementation drops events when its buffer is
+// full, on purpose: telemetry is worth nothing to the person typing, and a slow analytics
+// pipeline must never become a slow editor.
+type Telemetry interface {
+	AIRequest(e TelemetryAIRequest)
+}
+
+// TelemetryAIRequest is one pass of the cascade, for the cost ledger (§6.2).
+type TelemetryAIRequest struct {
+	Region       string
+	TierResolved int
+	CacheHit     bool
+	LatencyMS    int64
+	Error        string
+}
+
+// SetTelemetry attaches the event publisher. Optional: a nil Telemetry means the cascade
+// runs with no analytics at all, which is what dev without NATS looks like.
+func (o *Orchestrator) SetTelemetry(t Telemetry, region string) {
+	if t == nil || isNilValue(t) {
+		return
+	}
+	o.telemetry = t
+	o.region = region
+}
+
+// isNilValue reports whether an interface holds a typed nil (e.g. a (*Publisher)(nil)
+// wrapped in a Telemetry), which is NOT equal to nil and would panic on first use.
+//
+// The kind check is essential and I learned it the hard way: reflect.Value.IsNil()
+// PANICS on a struct — so an earlier version of this guard, written to prevent a nil
+// panic, crashed the server on boot the moment it was handed a struct adapter. Only
+// pointer-like kinds can be nil, so only they may be asked.
+func isNilValue(t Telemetry) bool {
+	v := reflect.ValueOf(t)
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Interface, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func:
+		return v.IsNil()
+	default:
+		return false
+	}
 }
 
 // merge combines Tier 1 and model suggestions, dropping model suggestions that
@@ -181,12 +234,33 @@ func (o *Orchestrator) Proofread(ctx context.Context, text string) (*Result, err
 		out = []Suggestion{}
 	}
 
-	return &Result{
+	res := &Result{
 		Suggestions:  out,
 		CacheHit:     allCached,
 		ModelPending: modelPending,
 		LatencyMS:    time.Since(start).Milliseconds(),
-	}, nil
+	}
+
+	// The cost ledger (§6.2). Fire-and-forget — this call cannot block, and it cannot
+	// fail the request. Note what it records: the TIER that resolved the work, which is
+	// the number that says whether the cascade is earning its keep, and whether the
+	// paid tiers were reached at all.
+	if o.telemetry != nil {
+		tier := int(TierRules)
+		if allCached {
+			tier = int(TierCache)
+		} else if !modelPending && o.models != nil {
+			tier = int(TierPrimary)
+		}
+		o.telemetry.AIRequest(TelemetryAIRequest{
+			Region:       o.region,
+			TierResolved: tier,
+			CacheHit:     allCached,
+			LatencyMS:    res.LatencyMS,
+		})
+	}
+
+	return res, nil
 }
 
 // Event is one message on the SSE stream (§7.2).

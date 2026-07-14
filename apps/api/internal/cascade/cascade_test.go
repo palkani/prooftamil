@@ -425,3 +425,64 @@ func TestCacheGetWithoutRedisIsAMiss(t *testing.T) {
 		t.Errorf("Set without Redis = %v, want nil (no-op)", err)
 	}
 }
+
+// --- telemetry (Phase 3) ---------------------------------------------------
+
+type fakeTelemetry struct{ events []TelemetryAIRequest }
+
+func (f *fakeTelemetry) AIRequest(e TelemetryAIRequest) { f.events = append(f.events, e) }
+
+// REGRESSION. SetTelemetry guarded against a typed-nil interface with
+// reflect.Value.IsNil() — which PANICS on a struct kind. The adapter that gets passed in
+// production IS a struct, so the guard written to prevent a nil panic crashed the server
+// on boot instead. A struct value must be accepted without drama.
+func TestSetTelemetryAcceptsAStructValue(t *testing.T) {
+	o := newOrch(&fakeTier1{}, 0.85)
+
+	// Must not panic.
+	o.SetTelemetry(&fakeTelemetry{}, "asia-south1")
+
+	if o.telemetry == nil {
+		t.Fatal("telemetry was not attached")
+	}
+}
+
+func TestSetTelemetryIgnoresATypedNil(t *testing.T) {
+	o := newOrch(&fakeTier1{}, 0.85)
+
+	// A (*fakeTelemetry)(nil) inside the interface is NOT == nil, and calling it would
+	// panic on first use. It must be treated as "no telemetry".
+	var typedNil *fakeTelemetry
+	o.SetTelemetry(typedNil, "asia-south1")
+
+	if o.telemetry != nil {
+		t.Error("a typed-nil telemetry must be ignored, not stored")
+	}
+
+	// And the cascade must still work with it.
+	if _, err := o.Proofread(context.Background(), "நான் வந்தேன்."); err != nil {
+		t.Fatalf("proofread failed with a typed-nil telemetry: %v", err)
+	}
+}
+
+// The cost ledger records WHICH TIER did the work — the number that says whether the
+// cascade is earning its keep.
+func TestTelemetryRecordsTheResolvingTier(t *testing.T) {
+	tel := &fakeTelemetry{}
+	o := newOrch(&fakeTier1{}, 0.85)
+	o.SetTelemetry(tel, "asia-south1")
+
+	if _, err := o.Proofread(context.Background(), "நான் வந்தேன்."); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(tel.events) != 1 {
+		t.Fatalf("got %d telemetry events, want 1", len(tel.events))
+	}
+	if tel.events[0].Region != "asia-south1" {
+		t.Errorf("region = %q", tel.events[0].Region)
+	}
+	if tel.events[0].LatencyMS < 0 {
+		t.Error("latency must be recorded")
+	}
+}

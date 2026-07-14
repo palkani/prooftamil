@@ -137,3 +137,34 @@ export async function suggestTamil(
   const data = await res.json();
   return data.suggestions ?? [];
 }
+
+/**
+ * Correction feedback (§7.2, Phase 3).
+ *
+ * A REJECTION IS THE MOST VALUABLE EVENT THE PRODUCT PRODUCES: a human saying "you were
+ * wrong" about a specific correction, with the tier and confidence that produced it
+ * attached. That is exactly the labelled data the eval set is starved of.
+ *
+ * Fire-and-forget, and errors are swallowed on purpose. Telemetry is worth a lot to US
+ * and nothing to the person who just clicked Accept — it must never be able to make their
+ * click fail, or block the edit behind a network round trip.
+ */
+export function sendFeedback(
+  action: "accept" | "reject",
+  s: Suggestion,
+): void {
+  void fetch(`${API_BASE}/api/v1/corrections/${action}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      original: s.original,
+      suggestion: s.suggestion,
+      type: s.type,
+      source_tier: s.source_tier,
+      confidence: s.confidence,
+    }),
+    keepalive: true, // survives the page being closed right after a click
+  }).catch(() => {
+    /* telemetry must never surface to the user */
+  });
+}

@@ -17,6 +17,7 @@ import (
 	"github.com/prooftamil/api/internal/cascade"
 	"github.com/prooftamil/api/internal/config"
 	"github.com/prooftamil/api/internal/corrector"
+	"github.com/prooftamil/api/internal/events"
 	"github.com/prooftamil/api/internal/handlers"
 	"github.com/prooftamil/api/internal/ocr"
 	"github.com/prooftamil/api/internal/router"
@@ -74,6 +75,15 @@ func run() error {
 		clients.Redis = rdb
 	}
 
+	// The event backbone (§9, Phase 3). A nil publisher is supported and means "no
+	// telemetry" — dev without NATS must still serve traffic.
+	pub, err := events.New(ctx, cfg.NATSURL, log)
+	if err != nil {
+		log.Warn("event backbone unavailable; telemetry is disabled", "err", err)
+		pub = nil
+	}
+	defer pub.Close()
+
 	deps := handlers.BuildDependencies(cfg, clients)
 	names := make([]string, 0, len(deps))
 	for _, d := range deps {
@@ -99,6 +109,9 @@ func run() error {
 		cfg.ConfidenceGate,
 		log,
 	)
+	if pub != nil {
+		orch.SetTelemetry(events.TelemetryAdapter{P: pub}, cfg.ServiceRegion)
+	}
 
 	srv := &http.Server{
 		Addr: ":" + cfg.Port,
@@ -108,6 +121,7 @@ func run() error {
 			handlers.NewSuggest(cfg.MLServiceURL, clients.HTTP),
 			buildWriter(cfg, clients, orch, log),
 			buildOCR(cfg, orch, log),
+			handlers.NewCorrections(pub),
 		),
 		ReadHeaderTimeout: 10 * time.Second,
 		// No WriteTimeout: the SSE streaming routes (§7.2) are long-lived and a

@@ -17,6 +17,7 @@ func New(
 	suggest *handlers.Suggest,
 	writer *handlers.Writer,
 	ocr *handlers.OCR,
+	corrections *handlers.Corrections,
 ) *gin.Engine {
 	if cfg.AppEnv != "dev" {
 		gin.SetMode(gin.ReleaseMode)
@@ -75,6 +76,11 @@ func New(
 		// unauthenticated and user-independent: identical for everyone, cacheable at
 		// the edge, and impossible to turn into a per-user keystroke log.
 		v1.GET("/suggest", suggest.Handle)
+
+		// §7.2 — correction feedback. A rejection is a human telling us we were wrong,
+		// which is the highest-signal training data the product produces.
+		v1.POST("/corrections/accept", corrections.Accept)
+		v1.POST("/corrections/reject", corrections.Reject)
 
 		// §15.3 — OCR. The image is transient: never persisted, never logged.
 		if ocr != nil {

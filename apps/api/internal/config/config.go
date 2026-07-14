@@ -58,6 +58,9 @@ type Config struct {
 	WriterMaxTokens  int
 	WriterDailyLimit int
 
+	// Events (§9, Phase 3)
+	NATSURL string
+
 	// Ops
 	AdminEmails  []string
 	SentryDSN    string
@@ -104,6 +107,7 @@ func Load() (*Config, error) {
 		// surface a hallucinated fix. A flag, so it can be flipped without a redeploy.
 		Tier1Only: env("TIER1_ONLY", "false") == "true",
 
+		NATSURL:      os.Getenv("NATS_URL"),
 		SentryDSN:    os.Getenv("SENTRY_DSN"),
 		OTELEndpoint: os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
 	}

@@ -6,7 +6,7 @@ import { Extension } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { TextSelection } from "@tiptap/pm/state";
 
-import { API_BASE, ProofreadClient, suggestTamil } from "@/lib/api";
+import { API_BASE, ProofreadClient, sendFeedback, suggestTamil } from "@/lib/api";
 import {
   type Draft,
   listDrafts,
@@ -286,6 +286,8 @@ export default function Editor() {
       .insertContentAt({ from, to }, s.suggestion)
       .run();
 
+    sendFeedback("accept", s);
+
     const next = suggestions.filter((_, j) => j !== i);
     setSugg(next);
     editor.view.dispatch(
@@ -337,13 +339,16 @@ export default function Editor() {
 
   const reject = (i: number) => {
     if (!editor) return;
+
+    // The high-signal one: a human telling us this correction was wrong.
+    const s = suggestions[i];
+    if (s) sendFeedback("reject", s);
+
     const next = suggestions.filter((_, j) => j !== i);
     setSugg(next);
     editor.view.dispatch(
       editor.view.state.tr.setMeta(suggestionPluginKey, removeSuggestion(i)),
     );
-    // Phase 3 will publish this to the event log — a rejection is the highest-signal
-    // training data there is, because it is a human saying "you were wrong".
   };
 
   /* -------------------------------------------------------------------- IME */

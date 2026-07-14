@@ -34,6 +34,49 @@ services:
     ports: ["6333:6333"]
     volumes: ["qdrantdata:/qdrant/storage"]
 
+  # --- Phase 3: the event backbone (§9) ---------------------------------------
+  #
+  # NATS JetStream is the durable log. Every correction shown, accepted or rejected is
+  # published here, and consumers fan out from it: the ClickHouse writer (analytics),
+  # the semantic-cache builder, and the training-dataset builder.
+  #
+  # The point of a log rather than direct writes: a consumer can be added, or REPLAYED
+  # from the beginning, without touching the serving path. Rebuilding the semantic cache
+  # becomes "replay the stream", not "run a migration against prod".
+  nats:
+    image: nats:2-alpine
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    ports: ["4222:4222", "8222:8222"]
+    volumes: ["natsdata:/data"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Analytics sink. ai_requests and activity_events live HERE, not in Postgres (§6.2) —
+  # they are append-only, high-volume, and never read by the serving path. Writing them
+  # to the primary DB would put telemetry on the same box that answers user requests,
+  # and the telemetry would win.
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    environment:
+      CLICKHOUSE_USER: prooftamil
+      CLICKHOUSE_PASSWORD: localdev
+      CLICKHOUSE_DB: analytics
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports: ["8123:8123", "9000:9000"]
+    volumes:
+      - "chdata:/var/lib/clickhouse"
+      - "./infra/clickhouse:/docker-entrypoint-initdb.d:ro"
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   ml:
     build:
       context: .
@@ -65,3 +108,5 @@ services:
 volumes:
   pgdata:
   qdrantdata:
+  natsdata:
+  chdata:
