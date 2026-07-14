@@ -130,6 +130,10 @@ audit: ## Held-out false-positive audit on real Tamil prose (RISK R1)
 eval-ime: ## IME accuracy: romanized -> Tamil, top-1/top-3/MRR (RFC-001)
 	$(ML_PY) eval/ime_eval.py
 
+.PHONY: ime-index
+ime-index: ## Rebuild the client-side IME index (RFC-001 §4). Gated on client/server parity.
+	$(ML_PY) scripts/build-ime-index.py --words 30000
+
 .PHONY: lexicon
 lexicon: ## Rebuild the lexicon from a Tamil Wikipedia dump (WIKI=path/to/dump.xml.bz2)
 	@test -n "$(WIKI)" || (echo "usage: make lexicon WIKI=tawiki-latest-pages-articles.xml.bz2"; exit 1)

@@ -16,6 +16,7 @@ import {
 } from "@/lib/drafts";
 import { exportDocx, exportPdf, exportTxt, importFile } from "@/lib/documents";
 import { remember, rerank } from "@/lib/ime-history";
+import { preloadIMEIndex } from "@/lib/ime-local";
 import Writer from "./Writer";
 import Scan from "./Scan";
 import ExportModal from "./ExportModal";
@@ -433,6 +434,15 @@ export default function Editor() {
   );
 
   /* -------------------------------------------------------- drafts & files */
+
+  // Fetch the client IME index AFTER first paint, never during it. A user who never
+  // types romanized Tamil must not pay 0.3 MB for it, and the editor has to be usable the
+  // instant it renders — the server path answers until this lands.
+  useEffect(() => {
+    const w = window as unknown as { requestIdleCallback?: (cb: () => void) => void };
+    if (w.requestIdleCallback) w.requestIdleCallback(() => preloadIMEIndex());
+    else setTimeout(preloadIMEIndex, 1200);
+  }, []);
 
   // Restore the most recent draft on load. A writer who closes the tab and comes back
   // must find their work, not a blank page.

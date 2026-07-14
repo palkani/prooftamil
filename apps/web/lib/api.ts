@@ -1,3 +1,4 @@
+import { suggestLocally } from "./ime-local";
 import type { IMESuggestion, ProofreadResult, StreamEvent, Suggestion } from "./types";
 
 export const API_BASE =
@@ -129,6 +130,18 @@ export async function suggestTamil(
   signal?: AbortSignal,
 ): Promise<IMESuggestion[]> {
   if (q.length < 2) return [];
+
+  // LOCAL FIRST (RFC-001 §4). The client index carries the 30,000 most common words —
+  // ~83% of real Tamil usage — and answers in microseconds with no network at all. This
+  // is the whole point: an IME has to feel like part of the keyboard, and from India a
+  // round trip alone can exceed the entire latency budget.
+  //
+  // null means "the index cannot answer this" — either it has not loaded yet, or the
+  // word is in the 17% tail we deliberately left on the server. The caller cannot tell
+  // the two apart, and should not: both mean ask the server.
+  const local = suggestLocally(q, limit);
+  if (local) return local;
+
   const res = await fetch(
     `${API_BASE}/api/v1/suggest?q=${encodeURIComponent(q)}&limit=${limit}`,
     { signal },

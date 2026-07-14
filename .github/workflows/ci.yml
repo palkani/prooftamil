@@ -79,6 +79,10 @@ jobs:
       # IME accuracy (RFC-001). Gated on top-3: the user picks from a list, so what
       # matters is that the intended word is ON SCREEN, not that it is first.
       - run: python eval/ime_eval.py
+      # The client IME index must agree with the server. A fast path that gives different
+      # answers than the slow one is worse than no fast path — this rebuilds the artifact
+      # and fails the build on any disagreement.
+      - run: python scripts/build-ime-index.py --words 30000
 
   env-manifest:
     name: env manifest (§3)
