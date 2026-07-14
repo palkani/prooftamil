@@ -99,8 +99,12 @@ func run() error {
 	)
 
 	srv := &http.Server{
-		Addr:              ":" + cfg.Port,
-		Handler:           router.New(cfg, handlers.NewHealth(cfg, deps), handlers.NewProofread(orch)),
+		Addr: ":" + cfg.Port,
+		Handler: router.New(cfg,
+			handlers.NewHealth(cfg, deps),
+			handlers.NewProofread(orch),
+			handlers.NewSuggest(cfg.MLServiceURL, clients.HTTP),
+		),
 		ReadHeaderTimeout: 10 * time.Second,
 		// No WriteTimeout: the SSE streaming routes (§7.2) are long-lived and a
 		// write deadline would sever them mid-stream.

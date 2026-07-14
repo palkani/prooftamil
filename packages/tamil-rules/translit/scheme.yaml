@@ -1,0 +1,178 @@
+# Romanized Tamil <-> Tamil script — the transliteration scheme (RFC-001).
+#
+# THIS IS DATA, NOT CODE. A Tamil speaker can fix the tables below without touching
+# Python or Go. Every entry here is a claim about how people actually type Tamil in
+# Latin letters; if a claim is wrong, the IME feels wrong, and this is where to fix it.
+#
+# The core idea: fold BOTH the Tamil word and the user's typing into one canonical
+# "sound key", then match. The folding is deliberately lossy — it throws away exactly
+# the distinctions people do not reliably type.
+#
+#   வணக்கம்  --sound_key-->  "vanakam"  <--query_fold--  "vanakkam" / "wanakam"
+#
+# Losing those distinctions is CORRECT here. The IME shows several candidates and the
+# user picks; unlike the proofreader, it is not asserting anything, so recall beats
+# precision. (See RFC-001 §2 — the two features want opposite things from the same
+# lexicon.)
+
+version: 1
+
+# --- Tamil script -> canonical sound key ------------------------------------
+# Note how aggressively these collapse: ல/ள/ழ all become "l", ண/ன/ந/ங/ஞ all become
+# "n", ர/ற both become "r". Those are the confusions Tier 1's spellchecker exists to
+# CATCH — and the ones the IME must deliberately IGNORE, because a user typing "l"
+# has no idea which of the three they want. Same lexicon, opposite job.
+consonants:
+  க: k
+  ங: n     # ங்க reads "ng"; the query fold maps g->k so "thangam" -> "tankam"
+  ச: s
+  ஞ: n
+  ட: t
+  ண: n
+  த: t
+  ந: n
+  ப: p
+  ம: m
+  ய: y
+  ர: r
+  ல: l
+  வ: v
+  ழ: l     # typed zh / l / z
+  ள: l
+  ற: r     # ன்ற reads "ndr" — handled by the query fold, not here
+  ன: n
+  # grantha (loanwords, names)
+  ஜ: j
+  ஷ: s
+  ஸ: s
+  ஹ: h
+  ஶ: s
+
+# Vowel signs (matras). Length is discarded: nobody reliably types aa vs a.
+vowel_signs:
+  "ா": a
+  "ி": i
+  "ீ": i
+  "ு": u
+  "ூ": u
+  "ெ": e
+  "ே": e
+  "ை": ai
+  "ொ": o
+  "ோ": o
+  "ௌ": au
+
+# Independent vowels
+vowels:
+  அ: a
+  ஆ: a
+  இ: i
+  ஈ: i
+  உ: u
+  ஊ: u
+  எ: e
+  ஏ: e
+  ஐ: ai
+  ஒ: o
+  ஓ: o
+  ஔ: au
+  ஃ: ""
+
+# --- user's typing -> the same canonical sound key ---------------------------
+# ORDER MATTERS: applied top to bottom, so multi-letter clusters must come before
+# the single letters they contain (ndr before d, zh before z, th before t).
+query_fold:
+  # VOWEL DIGRAPHS — must come first, before doubled letters get collapsed.
+  #
+  # The sound key discards vowel length (ஈ -> "i", ஊ -> "u"), so the query has to as
+  # well. Without these, `ee` collapses to a bare `e` and every long-ee word is
+  # unreachable: nee/நீ, neengal/நீங்கள், veedu/வீடு, thanneer/தண்ணீர் all missed.
+  - ["ee", "i"]
+  - ["oo", "u"]
+  - ["ei", "ey"]   # seithen -> செய்தேன் ("ey" is ெ + ய்)
+
+  # Consonant clusters whose PRONUNCIATION differs from their spelling. This block is
+  # the reason a naive one-key-per-word index fails: சென்றேன் keys as "senren", but
+  # people type "sendren" because ன்ற is pronounced "ndr".
+  - ["ndr", "nr"]
+  - ["ntr", "nr"]
+  - ["tr",  "r"]    # கற்று -> "karu"; people type "katru"
+  - ["dr",  "r"]
+  # Aspirates: the h is decorative in romanized Tamil.
+  - ["zh", "l"]     # தமிழ் -> "tamil"; people type "tamizh"
+  - ["sh", "s"]
+  - ["ch", "s"]
+  - ["th", "t"]
+  - ["dh", "t"]
+  - ["gh", "k"]
+  - ["bh", "p"]
+  - ["ph", "p"]
+  - ["kh", "k"]
+  # Voiced/unvoiced pairs. Tamil does not distinguish them in writing — the same
+  # letter is voiced or not depending on position — but Latin does, so people type
+  # whichever they hear.
+  - ["g", "k"]
+  - ["q", "k"]
+  - ["d", "t"]
+  - ["b", "p"]
+  - ["w", "v"]
+  - ["z", "l"]
+  - ["c", "s"]
+  - ["f", "p"]
+  - ["x", "ks"]
+
+# --- roman -> Tamil script, for words NOT in the lexicon ---------------------
+# An IME that cannot type your own name is broken. When the index has no match
+# (names, loanwords, coinages), generate a best-effort spelling instead of failing.
+# Greedy longest-match; the result is marked "generated" in the UI, never presented
+# as a dictionary word.
+generate:
+  # Longest first — the matcher is greedy.
+  clusters:
+    ksh: க்ஷ்
+    zh: ழ்
+    ng: ங்
+    nj: ஞ்
+    sh: ஷ்
+    ch: ச்
+    th: த்
+    dh: த்
+    gh: க்
+    bh: ப்
+    ph: ப்
+    kh: க்
+    tr: ட்ர்
+    dr: ட்ர்
+  consonants:
+    k: க்
+    g: க்
+    c: ச்
+    s: ஸ்
+    j: ஜ்
+    t: ட்
+    d: ட்
+    n: ன்
+    p: ப்
+    b: ப்
+    m: ம்
+    y: ய்
+    r: ர்
+    l: ல்
+    v: வ்
+    w: வ்
+    h: ஹ்
+    z: ழ்
+    f: ஃப்
+    q: க்
+  # vowel -> (independent form, matra). Independent form is used word-initially.
+  vowels:
+    a:  ["அ", ""]
+    aa: ["ஆ", "ா"]
+    i:  ["இ", "ி"]
+    ee: ["ஈ", "ீ"]
+    u:  ["உ", "ு"]
+    oo: ["ஊ", "ூ"]
+    e:  ["எ", "ெ"]
+    ai: ["ஐ", "ை"]
+    o:  ["ஒ", "ொ"]
+    au: ["ஔ", "ௌ"]

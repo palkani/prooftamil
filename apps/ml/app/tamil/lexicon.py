@@ -68,6 +68,17 @@ class Lexicon:
         """Corpus frequency; 0 if never seen. Used for the ratio guard."""
         return self._counts.get(normalize(word), 0)
 
+    def items(self):
+        """Every recorded (word, count), INCLUDING the rare ones below the trust
+        threshold.
+
+        The IME needs these: a rare word is still a word someone wants to type, and
+        refusing to type it would be a failure. The proofreader must not use this —
+        it needs `word in lexicon`, which enforces the trust threshold. (RFC-001 §2:
+        the two features want opposite things from the same data.)
+        """
+        return self._counts.items()
+
     @property
     def is_empty(self) -> bool:
         return not self._counts

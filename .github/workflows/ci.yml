@@ -76,6 +76,9 @@ jobs:
       # Held-out FP audit (RISK R1): the lexicon ships gzipped in-repo, so this
       # needs no corpus download and stays hermetic.
       - run: python eval/corpus_audit.py --show 0
+      # IME accuracy (RFC-001). Gated on top-3: the user picks from a list, so what
+      # matters is that the intended word is ON SCREEN, not that it is first.
+      - run: python eval/ime_eval.py
 
   env-manifest:
     name: env manifest (§3)

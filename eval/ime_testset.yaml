@@ -1,0 +1,89 @@
+# Tamil IME evaluation set (RFC-001 §8).
+#
+# Each case: what a human ACTUALLY TYPES -> the word they meant.
+#
+# The point is to model real typing, not idealised transliteration. So the spellings
+# below are deliberately inconsistent, exactly as people are: vanakkam/vanakam/wanakam,
+# tamil/tamizh, vandhan/vanthan. If the set only contained "correct" romanization it
+# would flatter the engine and tell us nothing.
+#
+# SIZE WARNING: ~60 cases. RFC-001 calls for >=500, human-checked. This is enough to
+# gate regressions in CI and NOT enough to claim an accuracy figure externally.
+#
+# Metrics: top-1 (is it the default?), top-3 (is it visible without scrolling?).
+# top-3 is what actually matters — the user is choosing from a list, not accepting
+# blindly. Gated in CI.
+
+cases:
+  # --- everyday words, spelled the obvious way ---
+  - { type: "vanakkam",   want: "வணக்கம்" }
+  - { type: "nandri",     want: "நன்றி" }
+  - { type: "tamil",      want: "தமிழ்" }
+  - { type: "naan",       want: "நான்" }
+  - { type: "nee",        want: "நீ" }
+  - { type: "avan",       want: "அவன்" }
+  - { type: "aval",       want: "அவள்" }
+  - { type: "naangal",    want: "நாங்கள்" }
+  - { type: "neengal",    want: "நீங்கள்" }
+  - { type: "palli",      want: "பள்ளி" }
+  - { type: "veedu",      want: "வீடு" }
+  - { type: "puthagam",   want: "புத்தகம்" }
+  - { type: "maram",      want: "மரம்" }
+  - { type: "mazhai",     want: "மழை" }
+  - { type: "kadal",      want: "கடல்" }
+  - { type: "malai",      want: "மலை" }
+  - { type: "ooru",       want: "ஊர்" }
+  - { type: "mozhi",      want: "மொழி" }
+  - { type: "kadhai",     want: "கதை" }
+  - { type: "nallathu",   want: "நல்லது" }
+  - { type: "periya",     want: "பெரிய" }
+  - { type: "azhagu",     want: "அழகு" }
+  - { type: "kaalai",     want: "காலை" }
+  - { type: "iravu",      want: "இரவு" }
+  - { type: "indru",      want: "இன்று" }
+  - { type: "naalai",     want: "நாளை" }
+  - { type: "unavu",      want: "உணவு" }
+  - { type: "thanneer",   want: "தண்ணீர்" }
+  - { type: "vanam",      want: "வானம்" }
+  - { type: "suriyan",    want: "சூரியன்" }
+
+  # --- verbs (the inflected forms people actually write) ---
+  - { type: "vandhan",    want: "வந்தான்" }
+  - { type: "vanthan",    want: "வந்தான்" }
+  - { type: "vandhen",    want: "வந்தேன்" }
+  - { type: "sendren",    want: "சென்றேன்" }
+  - { type: "sendran",    want: "சென்றான்" }
+  - { type: "ponen",      want: "போனேன்" }
+  - { type: "padithen",   want: "படித்தேன்" }
+  - { type: "sonnan",     want: "சொன்னான்" }
+  - { type: "paarthen",   want: "பார்த்தேன்" }
+  - { type: "irukkiradhu", want: "இருக்கிறது" }
+  - { type: "seithen",    want: "செய்தேன்" }
+
+  # --- case-marked / agglutinated forms ---
+  - { type: "pallikku",     want: "பள்ளிக்கு" }
+  - { type: "veettil",      want: "வீட்டில்" }
+  - { type: "tamilil",      want: "தமிழில்" }
+  - { type: "nagarathil",   want: "நகரத்தில்" }
+
+  # --- SPELLING VARIANTS: the same word, typed the ways people really type it ---
+  # If these fail, the engine is modelling an idealised romanization nobody uses.
+  - { type: "vanakam",    want: "வணக்கம்" }   # single k
+  - { type: "wanakam",    want: "வணக்கம்" }   # w for வ
+  - { type: "vanakkm",    want: "வணக்கம்" }   # dropped vowel
+  - { type: "tamizh",     want: "தமிழ்" }     # zh for ழ
+  - { type: "thamizh",    want: "தமிழ்" }     # th for த
+  - { type: "senren",     want: "சென்றேன்" }  # ன்ற written as it keys, not as it sounds
+  - { type: "nanri",      want: "நன்றி" }
+  - { type: "vendum",     want: "வேண்டும்" }  # ண்ட -> "nd"
+  - { type: "thangam",    want: "தங்கம்" }    # ங்க -> "ng"
+  - { type: "pazham",     want: "பழம்" }
+  - { type: "kavidhai",   want: "கவிதை" }
+  - { type: "kavithai",   want: "கவிதை" }
+  - { type: "eppadi",     want: "எப்படி" }
+  - { type: "romba",      want: "ரொம்ப" }     # ம்ப -> "mb"
+
+  # --- mid-word prefixes: the dropdown must be useful BEFORE the word is finished ---
+  - { type: "vanak",      want: "வணக்கம்" }
+  - { type: "tam",        want: "தமிழ்" }
+  - { type: "nan",        want: "நான்" }

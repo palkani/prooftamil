@@ -17,6 +17,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
 from .tamil.engine import TamilEngine
+from .tamil.translit import Transliterator
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info").upper()
 logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO))
@@ -37,6 +38,10 @@ _STARTED = time.monotonic()
 # single shared engine is safe across the worker's threads — and rebuilding it
 # per request would put a file read on the hot path of every keystroke.
 _engine = TamilEngine()
+
+# The IME (RFC-001). Shares the engine's lexicon rather than re-reading 28 MB from
+# disk. Read-only after construction, so it is safe to share across threads.
+_ime = Transliterator(lexicon=_engine.lexicon)
 
 
 SuggestionType = Literal["spelling", "sandhi", "grammar", "agreement", "style"]
@@ -93,6 +98,44 @@ def ready() -> dict:
         "lexicon_words": lexicon_size,
         "sandhi_rules": len(_engine.rules.get("rules", [])),
     }
+
+
+class IMESuggestion(BaseModel):
+    word: str
+    score: float
+    # "lexicon" = a real Tamil word we know. "generated" = a best-effort spelling for
+    # something not in the dictionary (a name, a loanword). The UI must show the
+    # difference — a generated form is a guess, not a word.
+    source: Literal["lexicon", "generated"]
+
+
+class SuggestResponse(BaseModel):
+    query: str
+    suggestions: list[IMESuggestion] = []
+    took_ms: int = 0
+
+
+@app.get("/suggest", response_model=SuggestResponse)
+def suggest(q: str, limit: int = 8) -> SuggestResponse:
+    """Tamil IME — romanized input to Tamil script (RFC-001).
+
+    `vanakkam` -> வணக்கம். The user has no Tamil keyboard; this is how they type.
+
+    PRIVACY: `q` is a raw keystroke prefix from someone's writing — the most sensitive
+    thing this product touches. It is never logged, and the endpoint takes no user
+    identity, so the results are identical for everyone and cacheable at the edge.
+    Do not add a user_id to this signature.
+    """
+    start = time.perf_counter()
+    found = _ime.suggest(q, limit=max(1, min(limit, 20)))
+    return SuggestResponse(
+        query=q,
+        suggestions=[
+            IMESuggestion(word=s.word, score=round(s.score, 3), source=s.source)
+            for s in found
+        ],
+        took_ms=int((time.perf_counter() - start) * 1000),
+    )
 
 
 @app.post("/analyze", response_model=AnalyzeResponse)

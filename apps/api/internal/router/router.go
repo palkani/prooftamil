@@ -10,7 +10,7 @@ import (
 	"github.com/prooftamil/api/internal/handlers"
 )
 
-func New(cfg *config.Config, health *handlers.Health, proofread *handlers.Proofread) *gin.Engine {
+func New(cfg *config.Config, health *handlers.Health, proofread *handlers.Proofread, suggest *handlers.Suggest) *gin.Engine {
 	if cfg.AppEnv != "dev" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -60,6 +60,11 @@ func New(cfg *config.Config, health *handlers.Health, proofread *handlers.Proofr
 		// §7.2 — the cascade.
 		v1.POST("/proofread", proofread.Sync)
 		v1.GET("/proofread/stream", proofread.Stream)
+
+		// RFC-001 — the Tamil IME. Fires on every keystroke, so it is deliberately
+		// unauthenticated and user-independent: identical for everyone, cacheable at
+		// the edge, and impossible to turn into a per-user keystroke log.
+		v1.GET("/suggest", suggest.Handle)
 	}
 
 	return r

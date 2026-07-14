@@ -46,6 +46,21 @@
   .samples button { background:transparent; color:var(--muted); border:1px solid var(--line);
                     font-weight:400; font-size:.82rem; padding:.35rem .7rem; }
   code { background:rgba(128,128,128,.12); padding:.1rem .35rem; border-radius:4px; font-size:.85em; }
+  kbd { background:rgba(128,128,128,.15); border:1px solid var(--line); border-bottom-width:2px;
+        border-radius:4px; padding:.05rem .3rem; font-size:.78em; font-family:inherit; }
+  .ime-note { color:var(--muted); font-size:.85rem; margin:0 0 .5rem; }
+  .ime-note label { color:var(--fg); font-weight:600; margin-right:.2rem; }
+  .editor-wrap { position:relative; }
+  /* The IME dropdown, anchored under the caret. */
+  .ime { position:absolute; z-index:20; margin:0; padding:.25rem; list-style:none;
+         background:var(--bg); border:1px solid var(--line); border-radius:8px;
+         box-shadow:0 8px 24px rgba(0,0,0,.18); min-width:190px; max-height:260px; overflow:auto; }
+  .ime li { padding:.4rem .6rem; border-radius:5px; cursor:pointer; display:flex;
+            align-items:baseline; gap:.5rem; font-size:1.05rem; }
+  .ime li[aria-selected="true"] { background:var(--accent); color:#fff; }
+  .ime li[aria-selected="true"] .num, .ime li[aria-selected="true"] .gen { color:#fff; opacity:.85; }
+  .ime .num { color:var(--muted); font-size:.75rem; min-width:.9rem; }
+  .ime .gen { color:var(--muted); font-size:.7rem; margin-left:auto; }
 </style>
 </head>
 <body>
@@ -57,7 +72,16 @@
     <span class="tag">tier 3/4</span> = Gemini (costs money, ~1s).
   </p>
 
-  <textarea id="text" spellcheck="false" lang="ta">அந்த பையன் வந்தான். அவர்கள் வனிகர்கள். நாங்கள் நகரத்திற்கு போனேன்.</textarea>
+  <div class="ime-note">
+    <label><input type="checkbox" id="imeOn" checked> Tamil IME</label>
+    — type romanized Tamil (<code>vanakkam</code>, <code>tamizh</code>, <code>sendren</code>)
+    and pick from the dropdown. <kbd>Enter</kbd> or <kbd>1-9</kbd> inserts, <kbd>Esc</kbd> keeps the Latin text.
+  </div>
+
+  <div class="editor-wrap">
+    <textarea id="text" spellcheck="false" lang="ta">அந்த பையன் வந்தான். அவர்கள் வனிகர்கள். நாங்கள் நகரத்திற்கு போனேன்.</textarea>
+    <ul id="ime" class="ime" hidden></ul>
+  </div>
 
   <div class="row samples">
     <button data-s="அந்த பையன் வந்தான்.">sandhi</button>
@@ -107,6 +131,120 @@ function render(suggestions, text) {
     </div>`;
   }).join("");
 }
+
+/* ---------------------------------------------------------------- Tamil IME
+ * Type romanized Tamil, pick the Tamil word (RFC-001).
+ *
+ * This is the SERVER-BACKED tier. RFC-001 §4 also specifies a client-side index
+ * (top-20k words, ~1MB) so 80% of keystrokes never touch the network — that ships
+ * with the Phase 4 editor. Here the round trip is fine on localhost.
+ */
+const ta = $("text"), box = $("ime"), toggle = $("imeOn");
+let cands = [], sel = 0, wordStart = 0, timer = null, seq = 0;
+
+// The word currently under the caret, but ONLY if it is Latin. Tamil text the user
+// has already inserted must never be "re-suggested".
+function romanWordAtCaret() {
+  const pos = ta.selectionStart;
+  if (pos !== ta.selectionEnd) return null;      // a selection, not a caret
+  const before = ta.value.slice(0, pos);
+  const m = before.match(/[A-Za-z]+$/);
+  if (!m || m[0].length < 2) return null;        // 1 letter is too noisy to suggest on
+  return { word: m[0], start: pos - m[0].length, end: pos };
+}
+
+function hideIME() { box.hidden = true; cands = []; sel = 0; }
+
+function showIME(list, start) {
+  cands = list; sel = 0; wordStart = start;
+  box.innerHTML = list.map((s, i) => `
+    <li role="option" aria-selected="${i === 0}" data-i="${i}">
+      <span class="num">${i + 1}</span>
+      <span>${esc(s.word)}</span>
+      ${s.source === "generated" ? '<span class="gen">new</span>' : ""}
+    </li>`).join("");
+  box.hidden = false;
+
+  // Anchor under the caret. A textarea gives us no caret coords, so measure the text
+  // before it in a mirror element — good enough for a test harness; the real editor
+  // (TipTap) exposes caret coordinates directly.
+  const st = getComputedStyle(ta);
+  const mirror = document.createElement("div");
+  Object.assign(mirror.style, {
+    position: "absolute", visibility: "hidden", whiteSpace: "pre-wrap", wordWrap: "break-word",
+    width: ta.clientWidth + "px", font: st.font, lineHeight: st.lineHeight,
+    padding: st.padding, border: st.border,
+  });
+  mirror.textContent = ta.value.slice(0, wordStart);
+  const marker = document.createElement("span");
+  marker.textContent = "​";
+  mirror.appendChild(marker);
+  document.body.appendChild(mirror);
+  const top = marker.offsetTop, left = marker.offsetLeft;
+  document.body.removeChild(mirror);
+
+  const lh = parseFloat(st.lineHeight) || 24;
+  box.style.top = (top - ta.scrollTop + lh + 4) + "px";
+  box.style.left = Math.min(left, ta.clientWidth - 200) + "px";
+}
+
+function move(d) {
+  sel = (sel + d + cands.length) % cands.length;
+  [...box.children].forEach((li, i) => li.setAttribute("aria-selected", i === sel));
+  box.children[sel]?.scrollIntoView({ block: "nearest" });
+}
+
+function accept(i) {
+  const pick = cands[i];
+  if (!pick) return;
+  const pos = ta.selectionStart;
+  // Replace the romanized word with the Tamil, and add a space so the user keeps typing.
+  ta.value = ta.value.slice(0, wordStart) + pick.word + " " + ta.value.slice(pos);
+  const caret = wordStart + [...pick.word].length + 1;
+  ta.setSelectionRange(caret, caret);
+  hideIME();
+  ta.focus();
+}
+
+async function queryIME() {
+  if (!toggle.checked) return hideIME();
+  const w = romanWordAtCaret();
+  if (!w) return hideIME();
+
+  const mine = ++seq;   // drop stale responses: a fast typist outruns the network
+  try {
+    const r = await fetch(`${API}/api/v1/suggest?q=${encodeURIComponent(w.word)}&limit=8`);
+    const d = await r.json();
+    if (mine !== seq) return;                       // a newer keystroke already won
+    if (!d.suggestions?.length) return hideIME();
+    showIME(d.suggestions, w.start);
+  } catch { hideIME(); }
+}
+
+ta.addEventListener("input", () => {
+  clearTimeout(timer);
+  timer = setTimeout(queryIME, 60);   // debounce: one request per pause, not per key
+});
+ta.addEventListener("blur", () => setTimeout(hideIME, 150));
+ta.addEventListener("click", hideIME);
+
+ta.addEventListener("keydown", (e) => {
+  if (box.hidden) return;
+  if (e.key === "ArrowDown") { e.preventDefault(); move(1); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); move(-1); }
+  else if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); accept(sel); }
+  // Esc dismisses and KEEPS the Latin text. Typing romanized and ignoring the
+  // dropdown must never auto-replace what the user wrote.
+  else if (e.key === "Escape") { e.preventDefault(); hideIME(); }
+  else if (/^[1-9]$/.test(e.key) && cands[+e.key - 1]) { e.preventDefault(); accept(+e.key - 1); }
+});
+
+box.addEventListener("mousedown", (e) => {
+  const li = e.target.closest("li");
+  if (li) { e.preventDefault(); accept(+li.dataset.i); }
+});
+
+toggle.addEventListener("change", () => { if (!toggle.checked) hideIME(); });
 
 $("go").onclick = async () => {
   const text = $("text").value;

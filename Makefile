@@ -120,6 +120,10 @@ eval: ## Run the accuracy harness over the labeled Tamil test set (§11)
 audit: ## Held-out false-positive audit on real Tamil prose (RISK R1)
 	$(ML_PY) eval/corpus_audit.py
 
+.PHONY: eval-ime
+eval-ime: ## IME accuracy: romanized -> Tamil, top-1/top-3/MRR (RFC-001)
+	$(ML_PY) eval/ime_eval.py
+
 .PHONY: lexicon
 lexicon: ## Rebuild the lexicon from a Tamil Wikipedia dump (WIKI=path/to/dump.xml.bz2)
 	@test -n "$(WIKI)" || (echo "usage: make lexicon WIKI=tawiki-latest-pages-articles.xml.bz2"; exit 1)
