@@ -91,6 +91,7 @@ export default function Editor() {
   const [imeOn, setImeOn] = useState(true);
   const [ime, setIme] = useState<IMEState | null>(null);
 
+  const [checking, setChecking] = useState(false);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [draftId, setDraftId] = useState<string>("");
   const [saved, setSaved] = useState("");
@@ -213,6 +214,7 @@ export default function Editor() {
       }
 
       setStatus("checking…");
+      setChecking(true);
       const collected: Suggestion[] = [];
 
       proofreader.stream(text, {
@@ -227,6 +229,7 @@ export default function Editor() {
           );
         },
         onDone: (modelPending) => {
+          setChecking(false);
           setStatus(
             collected.length === 0
               ? modelPending
@@ -235,7 +238,10 @@ export default function Editor() {
               : `${collected.length} suggestion${collected.length === 1 ? "" : "s"}`,
           );
         },
-        onError: (e) => setStatus(`error: ${e}`),
+        onError: (e) => {
+          setChecking(false);
+          setStatus(`error: ${e}`);
+        },
       });
     },
     [editor, proofreader],
@@ -274,6 +280,41 @@ export default function Editor() {
     editor.view.dispatch(
       editor.view.state.tr.setMeta(suggestionPluginKey, removeSuggestion(i)),
     );
+  };
+
+  /** High-confidence = at or above the gate the server already applied. */
+  const SAFE = 0.9;
+  const safeCount = suggestions.filter((s) => s.confidence >= SAFE).length;
+
+  /**
+   * Apply every high-confidence fix at once.
+   *
+   * Applied HIGHEST OFFSET FIRST. Each replacement changes the length of the
+   * document, so applying left-to-right would shift every span after it and the
+   * second fix would land in the wrong place. Going backwards means the offsets ahead
+   * of the cursor are never disturbed.
+   */
+  const applyAllSafe = () => {
+    if (!editor) return;
+    const safe = suggestions
+      .filter((s) => s.confidence >= SAFE)
+      .sort((a, b) => b.start - a.start);
+
+    const { map, text } = buildPositionMap(editor.state.doc);
+    const runes = Array.from(text);
+
+    const chain = editor.chain().focus();
+    let applied = 0;
+    for (const s of safe) {
+      if (runes.slice(s.start, s.end).join("") !== s.original) continue; // moved on
+      if (s.end > map.length) continue;
+      chain.insertContentAt({ from: map[s.start], to: map[s.end - 1] + 1 }, s.suggestion);
+      applied++;
+    }
+    chain.run();
+
+    setSugg((prev) => prev.filter((s) => s.confidence < SAFE));
+    setStatus(`applied ${applied} fixes`);
   };
 
   const reject = (i: number) => {
@@ -495,6 +536,9 @@ export default function Editor() {
         <div className="pt-editor-wrap">
           <EditorContent editor={editor} />
 
+          {/* Error-type legend (§17.1). Colour is never the only signal — each
+              suggestion also carries a text badge naming its type — but the legend is
+              what makes the underlines readable at a glance. */}
           {ime && imeOn && (
             <ul
               className="pt-ime"
@@ -521,9 +565,28 @@ export default function Editor() {
             </ul>
           )}
         </div>
+
+        <div className="pt-legend" aria-hidden="true">
+          <span><i style={{ background: "var(--err-spelling)" }} /> spelling</span>
+          <span><i style={{ background: "var(--err-sandhi)" }} /> sandhi (புணர்ச்சி)</span>
+          <span><i style={{ background: "var(--err-grammar)" }} /> grammar / agreement</span>
+          <span><i style={{ background: "var(--err-style)" }} /> style</span>
+        </div>
       </div>
 
       <aside className="pt-side">
+      {/*
+        * Screen-reader announcement for streamed suggestions (§17.6).
+        *
+        * Suggestions arrive asynchronously — Tier 1 in milliseconds, the model a
+        * second later. A sighted user sees underlines appear; a screen-reader user
+        * would get NOTHING, because nothing they are focused on changed. aria-live
+        * "polite" announces the count without stealing focus mid-sentence.
+        */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {status}
+      </div>
+
       {drafts.length > 0 && (
         <div className="pt-panel pt-drafts">
           <h2>Drafts</h2>
@@ -554,8 +617,26 @@ export default function Editor() {
           Suggestions <span className="pt-count">{suggestions.length}</span>
         </h2>
 
-        {suggestions.length === 0 && (
+        {/* "Apply all safe" only offers the HIGH-confidence ones. Bulk-accepting a
+            0.6-confidence guess is exactly how a writer ends up with mangled Tamil
+            they did not read — the whole point of the confidence gate is that some
+            suggestions deserve a human look. */}
+        {safeCount > 1 && (
+          <button className="pt-applyall" onClick={applyAllSafe}>
+            Apply {safeCount} high-confidence fixes
+          </button>
+        )}
+
+        {suggestions.length === 0 && checking && (
+          <div className="pt-skeleton" aria-hidden="true">
+            <div style={{ width: "70%" }} />
+            <div style={{ width: "45%" }} />
+          </div>
+        )}
+
+        {suggestions.length === 0 && !checking && (
           <p className="pt-empty">
+            <span className="ta">உங்கள் தமிழ் சரியாக உள்ளது ✅</span>
             Nothing to fix. For clean Tamil — and for real words like புலி — silence is
             the correct answer.
           </p>
@@ -569,18 +650,37 @@ export default function Editor() {
             </div>
 
             <div className="pt-tags">
-              <span className={`pt-tag ${s.source_tier === 1 ? "t1" : "tm"}`}>
+              <span className={`pt-tag type ${s.type}`}>{s.type}</span>
+              <span className="pt-tag">
                 {s.source_tier === 1 ? "rules · free" : `model · tier ${s.source_tier}`}
               </span>
-              <span className="pt-tag">{s.type}</span>
-              <span className="pt-tag">{Math.round(s.confidence * 100)}%</span>
+              {/* Confidence as a BAR, not just a number: it is a glanceable cue that
+                  tells the writer how much to trust this before they read it (§17.3). */}
+              <span
+                className="pt-conf"
+                title={`confidence ${Math.round(s.confidence * 100)}%`}
+              >
+                <span className="pt-conf-bar">
+                  <i style={{ width: `${Math.round(s.confidence * 100)}%` }} />
+                </span>
+                <span className="pt-conf-num">{Math.round(s.confidence * 100)}%</span>
+              </span>
             </div>
 
             {s.explanation && <p className="pt-why">{s.explanation}</p>}
 
             <div className="pt-actions">
-              <button onClick={() => accept(i)}>Accept</button>
-              <button className="ghost" onClick={() => reject(i)}>
+              <button
+                onClick={() => accept(i)}
+                aria-label={`Accept: replace ${s.original} with ${s.suggestion}`}
+              >
+                Accept
+              </button>
+              <button
+                className="ghost"
+                onClick={() => reject(i)}
+                aria-label={`Dismiss the suggestion for ${s.original}`}
+              >
                 Dismiss
               </button>
             </div>

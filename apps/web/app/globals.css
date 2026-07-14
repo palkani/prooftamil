@@ -1,24 +1,73 @@
+/* =============================================================================
+ * ProofTamil design tokens (§17.1)
+ * ========================================================================== */
+
 :root {
+  /* --- surface & text --- */
   --bg: #faf9f7;
   --fg: #1a1a1a;
-  --muted: #6b6b6b;
+  --muted: #5f5f5f;          /* AA on --bg (contrast 6.4:1) */
   --line: #e3e0da;
-  --panel: #fff;
+  --panel: #ffffff;
   --accent: #0b6e4f;
-  --red: #c0392b;
-  --amber: #b7791f;
+  --accent-fg: #ffffff;
+
+  /* --- ERROR-TYPE SEMANTICS (§17.1) ---
+   *
+   * COLOURBLIND-SAFE. Deuteranopia/protanopia (~8% of men) cannot reliably separate
+   * red from green — which is exactly the pair a naive "error red / fixed green"
+   * scheme uses. These four are drawn from the Okabe-Ito palette, which stays
+   * distinguishable under all common forms of colour-vision deficiency.
+   *
+   * Colour is never the ONLY signal either: every suggestion also carries a text
+   * badge naming its type. A user who cannot see the difference between two
+   * underlines can still read which is which.
+   */
+  --err-spelling: #d55e00;   /* vermillion */
+  --err-grammar: #0072b2;    /* blue       (grammar + agreement) */
+  --err-sandhi: #009e73;     /* bluish green */
+  --err-style: #cc79a7;      /* reddish purple */
+
+  --danger: #b3261e;
+
+  /* --- type ---
+   * NOTE: --font-tamil and --font-ui are NOT defined here. next/font sets them on
+   * <html> (layout.tsx). Redefining them in :root would shadow the generated
+   * @font-face family with a plain name, silently losing the self-hosted font and
+   * falling back to whatever the OS happens to have.
+   */
+
+  /*
+   * Tamil needs MORE VERTICAL ROOM THAN LATIN (§17.1). Its glyphs stack: a consonant
+   * can carry a vowel sign above and another below (ஔ, ஸ்ரீ, க்ஷ). At Latin's typical
+   * 1.5 line-height those marks collide with the lines above and below, or get
+   * clipped outright. 1.9 is the floor at which they breathe.
+   */
+  --tamil-size: 1.2rem;      /* ~19px — Tamil reads small at Latin's 16px */
+  --tamil-leading: 1.95;
+
+  --radius: 10px;
+  --shadow: 0 10px 30px rgb(0 0 0 / 0.12);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #16181c;
     --fg: #e8e6e3;
-    --muted: #9a9a9a;
+    --muted: #a3a3a3;        /* AA on --bg */
     --line: #2c2f36;
     --panel: #1c1f24;
     --accent: #4ade80;
-    --red: #f87171;
-    --amber: #fbbf24;
+    --accent-fg: #06281a;
+
+    /* Lightened for AA contrast on the dark surface; hue relationships preserved. */
+    --err-spelling: #ff9d4d;
+    --err-grammar: #6cb6ff;
+    --err-sandhi: #4ade80;
+    --err-style: #f0a3cd;
+
+    --danger: #f87171;
+    --shadow: 0 10px 30px rgb(0 0 0 / 0.45);
   }
 }
 
@@ -28,26 +77,58 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--font-ui), system-ui, sans-serif;
   line-height: 1.6;
 }
 
-main { max-width: 1140px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+/* Respect the OS setting. Vestibular disorders are not a preference. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
 
-.pt-header h1 { font-size: 1.5rem; margin: 0 0 .2rem; }
+main { max-width: 1160px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+
+/* Visible focus everywhere — the keyboard path must never be invisible (§17.6). */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+.pt-header h1 { font-size: 1.5rem; margin: 0 0 .2rem; letter-spacing: -0.01em; }
 .pt-header p { color: var(--muted); margin: 0 0 1.5rem; font-size: .92rem; }
 
-.pt-layout { display: grid; grid-template-columns: 1fr 330px; gap: 1.25rem; align-items: start; }
-@media (max-width: 900px) { .pt-layout { grid-template-columns: 1fr; } }
+.pt-layout { display: grid; grid-template-columns: 1fr 340px; gap: 1.25rem; align-items: start; }
+
+/* ---------------------------------------------------------------- file bar */
+.pt-filebar { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin-bottom: .6rem; }
+.pt-filebar button {
+  padding: .35rem .75rem; font-size: .8rem; cursor: pointer;
+  background: transparent; color: var(--fg);
+  border: 1px solid var(--line); border-radius: 7px;
+  font-family: var(--font-ui);
+}
+.pt-filebar button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.pt-filebar button:disabled { opacity: .45; cursor: not-allowed; }
+.pt-sep { width: 1px; height: 18px; background: var(--line); margin: 0 .3rem; }
+.pt-saved { margin-left: auto; color: var(--muted); font-size: .78rem; font-variant-numeric: tabular-nums; }
 
 /* ---------------------------------------------------------------- toolbar */
 .pt-toolbar {
   display: flex; align-items: center; gap: .9rem; flex-wrap: wrap;
   margin-bottom: .6rem; font-size: .85rem; color: var(--muted);
 }
-.pt-toggle { display: flex; align-items: center; gap: .4rem; color: var(--fg); font-weight: 600; }
+.pt-toggle { display: flex; align-items: center; gap: .4rem; color: var(--fg); font-weight: 600; cursor: pointer; }
 .pt-hint code, kbd {
-  background: rgba(128,128,128,.14); border-radius: 4px; padding: .05rem .35rem; font-size: .95em;
+  background: rgb(128 128 128 / 0.14); border-radius: 4px; padding: .05rem .35rem; font-size: .95em;
 }
 kbd { border: 1px solid var(--line); border-bottom-width: 2px; }
 .pt-status { margin-left: auto; font-variant-numeric: tabular-nums; }
@@ -56,122 +137,204 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; }
 .pt-editor-wrap { position: relative; }
 
 .pt-editor {
-  min-height: 340px; padding: 1.5rem;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
-  font-size: 1.2rem; line-height: 2; outline: none;
+  min-height: 360px;
+  padding: 1.75rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  outline: none;
+
+  /* The Tamil reading surface. */
+  font-family: var(--font-tamil), "Latha", "Tamil Sangam MN", serif;
+  font-size: var(--tamil-size);
+  line-height: var(--tamil-leading);
 }
-.pt-editor:focus-within { border-color: var(--accent); }
-.pt-editor p { margin: 0 0 .9rem; }
+.pt-editor:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgb(11 110 79 / 0.10); }
+.pt-editor p { margin: 0 0 .85rem; }
+.pt-editor p:last-child { margin-bottom: 0; }
+.pt-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--muted); float: left; height: 0; pointer-events: none;
+}
 
 /*
  * Suggestion underlines.
  *
- * A wavy underline, not a highlight: it must be legible against Tamil, which has
- * descenders and stacked vowel signs that a background block would swallow. And the
- * writer's own text stays the same colour — a suggestion is an annotation, not a
- * verdict on their prose.
+ * A wavy underline BELOW the text, never a background highlight: Tamil hangs vowel
+ * signs under the baseline, and a filled block swallows them. The offset is pushed
+ * out to 6px for the same reason — at Latin's usual 2-3px the wave collides with
+ * descenders like ழ and the stacked forms.
  */
 .pt-suggestion {
   text-decoration: underline wavy;
   text-decoration-thickness: 1.5px;
-  text-underline-offset: 5px;
+  text-underline-offset: 6px;
   cursor: pointer;
 }
-/* Tier 1 (deterministic rules) vs the model tiers, distinguishable at a glance. */
-.pt-tier1 { text-decoration-color: var(--accent); }
-.pt-model { text-decoration-color: var(--amber); }
-.pt-spelling { text-decoration-color: var(--red); }
-.pt-active { background: rgba(11,110,79,.12); border-radius: 3px; }
+.pt-spelling  { text-decoration-color: var(--err-spelling); }
+.pt-grammar,
+.pt-agreement { text-decoration-color: var(--err-grammar); }
+.pt-sandhi    { text-decoration-color: var(--err-sandhi); }
+.pt-style     { text-decoration-color: var(--err-style); }
+
+.pt-active { background: rgb(11 110 79 / 0.12); border-radius: 3px; }
+
+/* ------------------------------------------------------------------ legend */
+.pt-legend {
+  display: flex; gap: .8rem; flex-wrap: wrap;
+  margin-top: .5rem; font-size: .72rem; color: var(--muted);
+}
+.pt-legend span { display: flex; align-items: center; gap: .3rem; }
+.pt-legend i {
+  width: 14px; height: 2px; border-radius: 2px; display: inline-block;
+}
 
 /* -------------------------------------------------------------------- IME */
 .pt-ime {
   position: absolute; z-index: 30; margin: 0; padding: .25rem; list-style: none;
   background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
-  box-shadow: 0 10px 30px rgba(0,0,0,.2);
-  min-width: 200px; max-height: 270px; overflow: auto;
+  box-shadow: var(--shadow);
+  min-width: 210px; max-height: 270px; overflow: auto;
 }
 .pt-ime li {
   display: flex; align-items: baseline; gap: .55rem;
-  padding: .4rem .6rem; border-radius: 6px; cursor: pointer; font-size: 1.1rem;
+  padding: .45rem .6rem; border-radius: 6px; cursor: pointer;
+  font-family: var(--font-tamil); font-size: 1.1rem;
+  min-height: 34px;
 }
-.pt-ime li.sel { background: var(--accent); color: #fff; }
-.pt-ime li.sel .num, .pt-ime li.sel .gen { color: #fff; opacity: .85; }
-.pt-ime .num { color: var(--muted); font-size: .72rem; min-width: .9rem; }
-.pt-ime .gen { margin-left: auto; color: var(--muted); font-size: .68rem; text-transform: uppercase; }
+.pt-ime li.sel { background: var(--accent); color: var(--accent-fg); }
+.pt-ime li.sel .num, .pt-ime li.sel .gen { color: var(--accent-fg); opacity: .9; }
+.pt-ime .num { color: var(--muted); font-size: .72rem; min-width: .9rem; font-family: var(--font-ui); }
+.pt-ime .gen {
+  margin-left: auto; color: var(--muted); font-size: .66rem;
+  text-transform: uppercase; letter-spacing: .04em; font-family: var(--font-ui);
+}
 
 /* ------------------------------------------------------------------ panel */
+.pt-side { display: flex; flex-direction: column; gap: 1rem; position: sticky; top: 1rem; }
 .pt-panel {
-  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
-  padding: 1rem; position: sticky; top: 1rem;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 1rem;
 }
-.pt-panel h2 { font-size: .95rem; margin: 0 0 .8rem; display: flex; align-items: center; gap: .5rem; }
+.pt-panel h2 {
+  font-size: .95rem; margin: 0 0 .8rem;
+  display: flex; align-items: center; gap: .5rem;
+}
 .pt-count {
-  background: var(--accent); color: #fff; border-radius: 999px;
-  padding: 0 .45rem; font-size: .75rem; font-weight: 600;
+  background: var(--accent); color: var(--accent-fg); border-radius: 999px;
+  padding: 0 .45rem; font-size: .75rem; font-weight: 600; font-variant-numeric: tabular-nums;
 }
 .pt-empty { color: var(--muted); font-size: .87rem; margin: 0; }
+.pt-empty .ta { font-family: var(--font-tamil); display: block; margin-bottom: .3rem; color: var(--fg); }
 
-.pt-card { border-top: 1px solid var(--line); padding: .8rem 0; }
+/* Skeletons while the model tier is still thinking (§17.4). */
+.pt-skeleton { border-top: 1px solid var(--line); padding: .8rem 0; }
+.pt-skeleton div {
+  height: 10px; border-radius: 4px; margin-bottom: .5rem;
+  background: linear-gradient(90deg, rgb(128 128 128 / .10), rgb(128 128 128 / .20), rgb(128 128 128 / .10));
+  background-size: 200% 100%;
+  animation: pt-shimmer 1.3s infinite;
+}
+@keyframes pt-shimmer { to { background-position: -200% 0; } }
+
+.pt-applyall {
+  width: 100%; margin-bottom: .6rem; padding: .45rem;
+  font-size: .8rem; font-weight: 600; cursor: pointer;
+  background: transparent; color: var(--accent);
+  border: 1px dashed var(--accent); border-radius: 7px;
+  font-family: var(--font-ui);
+}
+.pt-applyall:hover { background: rgb(11 110 79 / 0.08); }
+
+.pt-card { border-top: 1px solid var(--line); padding: .85rem 0; }
 .pt-card:first-of-type { border-top: 0; }
-.pt-fix { font-size: 1.1rem; margin-bottom: .45rem; }
-.pt-fix del { color: var(--red); text-decoration-thickness: 1px; }
+.pt-card.sel { background: rgb(11 110 79 / 0.06); border-radius: 6px; padding-inline: .5rem; }
+
+.pt-fix { font-family: var(--font-tamil); font-size: 1.1rem; line-height: 1.8; margin-bottom: .5rem; }
+.pt-fix del { color: var(--danger); text-decoration-thickness: 1px; }
 .pt-fix ins { color: var(--accent); text-decoration: none; font-weight: 600; }
 .pt-arrow { color: var(--muted); }
 
-.pt-tags { display: flex; gap: .35rem; flex-wrap: wrap; margin-bottom: .4rem; }
+.pt-tags { display: flex; gap: .35rem; flex-wrap: wrap; margin-bottom: .45rem; align-items: center; }
 .pt-tag {
-  font-size: .68rem; text-transform: uppercase; letter-spacing: .03em;
+  font-size: .67rem; text-transform: uppercase; letter-spacing: .04em;
   border: 1px solid var(--line); color: var(--muted);
-  padding: .1rem .45rem; border-radius: 999px;
+  padding: .1rem .45rem; border-radius: 999px; font-family: var(--font-ui);
 }
-.pt-tag.t1 { border-color: var(--accent); color: var(--accent); }
-.pt-tag.tm { border-color: var(--amber); color: var(--amber); }
+.pt-tag.type { border-color: currentColor; }
+.pt-tag.spelling  { color: var(--err-spelling); }
+.pt-tag.grammar,
+.pt-tag.agreement { color: var(--err-grammar); }
+.pt-tag.sandhi    { color: var(--err-sandhi); }
+.pt-tag.style     { color: var(--err-style); }
 
-.pt-why { color: var(--muted); font-size: .85rem; margin: .2rem 0 .55rem; }
+/* The confidence cue: a bar, not just a number — readable at a glance (§17.3). */
+.pt-conf { display: flex; align-items: center; gap: .3rem; margin-left: auto; }
+.pt-conf-bar { width: 34px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.pt-conf-bar i { display: block; height: 100%; background: var(--accent); }
+.pt-conf-num { font-size: .67rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.pt-why {
+  font-family: var(--font-tamil);
+  color: var(--muted); font-size: .92rem; line-height: 1.75; margin: .25rem 0 .6rem;
+}
 
 .pt-actions { display: flex; gap: .4rem; }
 .pt-actions button {
-  padding: .35rem .8rem; font-size: .82rem; font-weight: 600; cursor: pointer;
-  border: 0; border-radius: 6px; background: var(--accent); color: #fff;
+  padding: .4rem .85rem; font-size: .82rem; font-weight: 600; cursor: pointer;
+  border: 0; border-radius: 7px; background: var(--accent); color: var(--accent-fg);
+  font-family: var(--font-ui); min-height: 32px;
 }
-.pt-actions button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.pt-actions button.ghost {
+  background: transparent; color: var(--muted); border: 1px solid var(--line);
+}
 
 .pt-loading { color: var(--muted); padding: 3rem 0; }
 
-/* ---------------------------------------------------------------- file bar */
-.pt-filebar {
-  display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin-bottom: .6rem;
-}
-.pt-filebar button {
-  padding: .3rem .7rem; font-size: .8rem; cursor: pointer;
-  background: transparent; color: var(--fg);
-  border: 1px solid var(--line); border-radius: 6px;
-}
-.pt-filebar button:hover { border-color: var(--accent); color: var(--accent); }
-.pt-sep { width: 1px; height: 18px; background: var(--line); margin: 0 .3rem; }
-.pt-saved {
-  margin-left: auto; color: var(--muted); font-size: .78rem;
-  font-variant-numeric: tabular-nums;
-}
-
 /* ----------------------------------------------------------------- drafts */
-.pt-side { display: flex; flex-direction: column; gap: 1rem; position: sticky; top: 1rem; }
-.pt-panel { position: static; }   /* the wrapper is sticky now, not each panel */
-
 .pt-drafts h2 { margin-bottom: .5rem; }
 .pt-draft {
   display: flex; align-items: center; gap: .5rem;
-  padding: .35rem .5rem; border-radius: 6px; cursor: pointer; font-size: .85rem;
+  padding: .4rem .5rem; border-radius: 6px; cursor: pointer; font-size: .85rem;
+  min-height: 32px;
 }
-.pt-draft:hover { background: rgba(128,128,128,.09); }
-.pt-draft.cur { background: rgba(11,110,79,.12); font-weight: 600; }
-@media (prefers-color-scheme: dark) { .pt-draft.cur { background: rgba(74,222,128,.14); } }
+.pt-draft:hover { background: rgb(128 128 128 / .09); }
+.pt-draft.cur { background: rgb(11 110 79 / 0.12); font-weight: 600; }
+@media (prefers-color-scheme: dark) { .pt-draft.cur { background: rgb(74 222 128 / .14); } }
 .pt-draft-title {
   flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--font-tamil);
 }
 .pt-del {
   background: none; border: 0; color: var(--muted); cursor: pointer;
-  font-size: 1.05rem; line-height: 1; padding: 0 .2rem; opacity: 0;
+  font-size: 1.05rem; line-height: 1; padding: .2rem .3rem; opacity: 0;
 }
-.pt-draft:hover .pt-del { opacity: 1; }
-.pt-del:hover { color: var(--red); }
+.pt-draft:hover .pt-del, .pt-del:focus-visible { opacity: 1; }
+.pt-del:hover { color: var(--danger); }
+
+/* --------------------------------------------------------------- mobile (§17.5) */
+@media (max-width: 900px) {
+  .pt-layout { grid-template-columns: 1fr; }
+
+  /*
+   * The suggestion panel becomes a bottom sheet. On a phone the writer needs the
+   * whole screen for the text; a sidebar would squeeze the editor to a column too
+   * narrow for Tamil, whose words are long.
+   */
+  .pt-side {
+    position: fixed; inset: auto 0 0 0; z-index: 40;
+    max-height: 45vh; overflow: auto;
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -8px 30px rgb(0 0 0 / .16);
+    padding: .5rem .75rem 1rem;
+  }
+  .pt-panel { border: 0; padding: .5rem 0; }
+  .pt-drafts { display: none; }              /* drafts move to a menu on mobile */
+  main { padding-bottom: 48vh; }
+
+  /* Touch targets >= 44px (§17.5). */
+  .pt-actions button, .pt-filebar button { min-height: 44px; padding-inline: 1rem; }
+  .pt-ime li { min-height: 44px; }
+}
