@@ -16,6 +16,7 @@ import {
 } from "@/lib/drafts";
 import { exportDocx, exportPdf, exportTxt, importFile } from "@/lib/documents";
 import { remember, rerank } from "@/lib/ime-history";
+import Writer from "./Writer";
 import {
   buildPositionMap,
   removeSuggestion,
@@ -92,6 +93,7 @@ export default function Editor() {
   const [ime, setIme] = useState<IMEState | null>(null);
 
   const [checking, setChecking] = useState(false);
+  const [writerOpen, setWriterOpen] = useState(false);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [draftId, setDraftId] = useState<string>("");
   const [saved, setSaved] = useState("");
@@ -503,6 +505,10 @@ export default function Editor() {
             }}
           />
 
+          <button onClick={() => setWriterOpen((v) => !v)}>
+            ✨ AI Writer
+          </button>
+
           <span className="pt-sep" />
 
           <button onClick={() => onExport("txt")}>.txt</button>
@@ -586,6 +592,27 @@ export default function Editor() {
       <div aria-live="polite" aria-atomic="true" className="sr-only">
         {status}
       </div>
+
+      {writerOpen && editor && (
+        <div className="pt-panel">
+          <Writer
+            text={editor.getText()}
+            selection={editor.state.doc.textBetween(
+              editor.state.selection.from,
+              editor.state.selection.to,
+              " ",
+            )}
+            onClose={() => setWriterOpen(false)}
+            onInsert={(t) => {
+              // Insert at the caret, not by replacing the document: the writer asked
+              // for a continuation or a rewrite of a passage, not for their draft to
+              // be thrown away.
+              editor.chain().focus().insertContent(toHtml(t)).run();
+              setWriterOpen(false);
+            }}
+          />
+        </div>
+      )}
 
       {drafts.length > 0 && (
         <div className="pt-panel pt-drafts">

@@ -19,6 +19,7 @@ import (
 	"github.com/prooftamil/api/internal/corrector"
 	"github.com/prooftamil/api/internal/handlers"
 	"github.com/prooftamil/api/internal/router"
+	"github.com/prooftamil/api/internal/writer"
 )
 
 func main() {
@@ -104,6 +105,7 @@ func run() error {
 			handlers.NewHealth(cfg, deps),
 			handlers.NewProofread(orch),
 			handlers.NewSuggest(cfg.MLServiceURL, clients.HTTP),
+			buildWriter(cfg, clients, orch, log),
 		),
 		ReadHeaderTimeout: 10 * time.Second,
 		// No WriteTimeout: the SSE streaming routes (§7.2) are long-lived and a
@@ -233,6 +235,50 @@ func buildModelTier(cfg *config.Config, httpc *http.Client, log *slog.Logger) (c
 		"verify_below", cfg.ConfidenceGate, "tier1_only", cfg.Tier1Only)
 
 	return corrector.NewRouter(primary, fallback, cfg.ModelTimeout, log, opts...), nil
+}
+
+// buildWriter assembles the AI Content Writer (§16). Returns nil — and the routes are
+// simply not registered — when there is no Gemini key, rather than exposing endpoints
+// that would 500 on every call.
+func buildWriter(cfg *config.Config, clients *handlers.Clients, orch *cascade.Orchestrator, log *slog.Logger) *handlers.Writer {
+	if cfg.GeminiAPIKey == "" {
+		log.Warn("no Gemini key; the AI Content Writer is disabled")
+		return nil
+	}
+
+	prompts := map[writer.Mode]string{}
+	for mode, file := range map[writer.Mode]string{
+		writer.ModeRewrite:  "writer/rewrite",
+		writer.ModeTemplate: "writer/template",
+		writer.ModeContinue: "writer/continue",
+	} {
+		p, err := corrector.LoadPrompt(file, 1)
+		if err != nil {
+			log.Warn("writer prompt missing; feature disabled", "prompt", file, "err", err)
+			return nil
+		}
+		prompts[mode] = p.Body
+	}
+
+	gen := writer.NewGeminiGenerator(
+		cfg.GeminiAPIKey, cfg.GeminiBaseURL, cfg.GeminiModel, cfg.WriterMaxTokens, nil)
+
+	// Entitlement: AlwaysPro until billing exists (Phase 6, blocked on §1). It is a
+	// named type rather than a nil check so that when the real subscriptions table
+	// lands, deleting it breaks the build at every call site — which is the reminder
+	// we want.
+	svc := writer.NewService(
+		gen, prompts,
+		writer.NewRedisQuota(clients.Redis, cfg.WriterDailyLimit),
+		writer.AlwaysPro{Log: log},
+		orch, log,
+	)
+
+	log.Info("AI Content Writer enabled",
+		"model", cfg.GeminiModel, "daily_limit", cfg.WriterDailyLimit,
+		"max_output_tokens", cfg.WriterMaxTokens, "entitlement", "ALWAYS-PRO (no billing yet)")
+
+	return handlers.NewWriter(svc)
 }
 
 func nameOf(c corrector.Corrector) string {

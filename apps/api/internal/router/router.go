@@ -10,7 +10,13 @@ import (
 	"github.com/prooftamil/api/internal/handlers"
 )
 
-func New(cfg *config.Config, health *handlers.Health, proofread *handlers.Proofread, suggest *handlers.Suggest) *gin.Engine {
+func New(
+	cfg *config.Config,
+	health *handlers.Health,
+	proofread *handlers.Proofread,
+	suggest *handlers.Suggest,
+	writer *handlers.Writer,
+) *gin.Engine {
 	if cfg.AppEnv != "dev" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -28,7 +34,10 @@ func New(cfg *config.Config, health *handlers.Health, proofread *handlers.Proofr
 	if cfg.AppEnv == "dev" {
 		r.Use(func(c *gin.Context) {
 			c.Header("Access-Control-Allow-Origin", "*")
-			c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			// X-User-Id is the temporary stand-in for an authenticated subject until
+			// Phase 6. Omitting it from the allowlist blocked every writer call in the
+			// BROWSER while curl sailed through — curl does not enforce CORS.
+			c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-User-Id")
 			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			if c.Request.Method == http.MethodOptions {
 				c.AbortWithStatus(http.StatusNoContent)
@@ -65,6 +74,15 @@ func New(cfg *config.Config, health *handlers.Health, proofread *handlers.Proofr
 		// unauthenticated and user-independent: identical for everyone, cacheable at
 		// the edge, and impossible to turn into a per-user keystroke log.
 		v1.GET("/suggest", suggest.Handle)
+
+		// §16.3 — the AI Content Writer. Pro-gated, all modes streamed.
+		if writer != nil {
+			w := v1.Group("/write")
+			w.GET("/templates", writer.Templates)
+			w.POST("/rewrite", writer.Rewrite)
+			w.POST("/template", writer.Template)
+			w.POST("/continue", writer.Continue)
+		}
 	}
 
 	return r

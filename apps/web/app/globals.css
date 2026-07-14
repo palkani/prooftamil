@@ -338,3 +338,57 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; }
   .pt-actions button, .pt-filebar button { min-height: 44px; padding-inline: 1rem; }
   .pt-ime li { min-height: 44px; }
 }
+
+/* ------------------------------------------------------- AI Writer (§16, §17.3) */
+.pt-writer-head { display: flex; align-items: center; margin-bottom: .6rem; }
+.pt-writer-head h2 { margin: 0; flex: 1; }
+.pt-x {
+  background: none; border: 0; color: var(--muted); cursor: pointer;
+  font-size: 1.2rem; line-height: 1; padding: .2rem .4rem;
+}
+.pt-modes { display: flex; gap: .25rem; margin-bottom: .7rem; }
+.pt-modes button {
+  flex: 1; padding: .35rem; font-size: .78rem; cursor: pointer;
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 6px; font-family: var(--font-ui);
+}
+.pt-modes button.on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+
+.pt-wfields { display: flex; flex-direction: column; gap: .5rem; margin-bottom: .6rem; }
+.pt-wfields label {
+  display: flex; flex-direction: column; gap: .2rem;
+  font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+}
+.pt-wfields select, .pt-wfields input {
+  padding: .35rem .5rem; font-size: .88rem; text-transform: none; letter-spacing: 0;
+  background: var(--bg); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 6px;
+  font-family: var(--font-tamil), var(--font-ui);
+}
+.pt-wnote { color: var(--muted); font-size: .76rem; margin: .1rem 0 0; line-height: 1.5; }
+
+.pt-wactions { display: flex; gap: .4rem; margin-top: .5rem; }
+.pt-wactions button {
+  flex: 1; padding: .45rem; font-size: .82rem; font-weight: 600; cursor: pointer;
+  background: var(--accent); color: var(--accent-fg);
+  border: 0; border-radius: 7px; font-family: var(--font-ui); min-height: 34px;
+}
+.pt-wactions button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.pt-wactions .pt-stop { background: var(--danger); }
+
+.pt-wout { margin-top: .8rem; border-top: 1px solid var(--line); padding-top: .7rem; }
+.pt-wtext {
+  font-family: var(--font-tamil); font-size: 1.02rem; line-height: 1.9;
+  white-space: pre-wrap; max-height: 240px; overflow: auto;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: .6rem;
+}
+.pt-wchecks { font-size: .76rem; color: var(--err-spelling); margin: .5rem 0 0; line-height: 1.5; }
+.pt-wchecks.ok { color: var(--err-sandhi); }
+.pt-werror { color: var(--danger); font-size: .8rem; margin: .5rem 0 0; }
+
+.pt-gate {
+  margin-top: .6rem; padding: .7rem; border-radius: 8px;
+  background: rgb(183 121 31 / .10); border: 1px solid var(--err-spelling);
+}
+.pt-gate strong { display: block; font-size: .85rem; margin-bottom: .2rem; }
+.pt-gate p { margin: 0; font-size: .78rem; color: var(--muted); line-height: 1.5; }

@@ -54,6 +54,10 @@ type Config struct {
 	CacheTTL                    time.Duration
 	ConfidenceGate              float64
 
+	// Writer (§16.5) — generation is the priciest call, so both knobs are cost ceilings.
+	WriterMaxTokens  int
+	WriterDailyLimit int
+
 	// Ops
 	AdminEmails  []string
 	SentryDSN    string
@@ -131,6 +135,14 @@ func Load() (*Config, error) {
 	// 4096 is the ceiling on Sarvam's "starter" tier; the API rejects more. It must
 	// cover the model's (undisableable) reasoning trace AND the answer.
 	if c.SarvamMaxTokens, err = envInt("SARVAM_MAX_TOKENS", 4096); err != nil {
+		errs = append(errs, err.Error())
+	}
+	// §16.5 — cost ceilings. Per-call output cap, and a per-user daily cap: without
+	// them one scripted user could out-spend every other cost in the system.
+	if c.WriterMaxTokens, err = envInt("WRITER_MAX_OUTPUT_TOKENS", 1024); err != nil {
+		errs = append(errs, err.Error())
+	}
+	if c.WriterDailyLimit, err = envInt("WRITER_DAILY_LIMIT", 50); err != nil {
 		errs = append(errs, err.Error())
 	}
 
