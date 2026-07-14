@@ -17,6 +17,8 @@ import {
 import { exportDocx, exportPdf, exportTxt, importFile } from "@/lib/documents";
 import { remember, rerank } from "@/lib/ime-history";
 import Writer from "./Writer";
+import Scan from "./Scan";
+import { startVoice, voiceSupported, type VoiceHandle } from "@/lib/voice";
 import {
   buildPositionMap,
   removeSuggestion,
@@ -94,6 +96,11 @@ export default function Editor() {
 
   const [checking, setChecking] = useState(false);
   const [writerOpen, setWriterOpen] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [interim, setInterim] = useState("");
+  const [filter, setFilter] = useState<string>("all");
+  const voice = useRef<VoiceHandle | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [draftId, setDraftId] = useState<string>("");
   const [saved, setSaved] = useState("");
@@ -105,7 +112,6 @@ export default function Editor() {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const imeAbort = useRef<AbortController | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const imageInput = useRef<HTMLInputElement>(null);
   const draftIdRef = useRef("");
   draftIdRef.current = draftId;
 
@@ -284,6 +290,13 @@ export default function Editor() {
       editor.view.state.tr.setMeta(suggestionPluginKey, removeSuggestion(i)),
     );
   };
+
+  // Filter by error type (§17.3). With a long document the panel becomes a wall; a
+  // writer fixing spelling does not want to scroll past twenty style notes.
+  const types = Array.from(new Set(suggestions.map((s) => s.type)));
+  const shown = suggestions
+    .map((s, i) => ({ s, i }))
+    .filter(({ s }) => filter === "all" || s.type === filter);
 
   /** High-confidence = at or above the gate the server already applied. */
   const SAFE = 0.9;
@@ -470,38 +483,53 @@ export default function Editor() {
   };
 
   /**
-   * OCR (§15). Sends the photo to the server vision path, drops the transcription into
-   * a NEW draft, and shows whatever the cascade found in it.
-   *
-   * A new draft rather than an insert: someone scanning a page expects a document, not
-   * their current work to have a photograph pasted into the middle of it.
+   * A scan lands in a NEW draft, not the current one: someone photographing a page
+   * expects a document, not their work-in-progress to have a page pasted into it.
    */
-  const onOCR = async (file: File) => {
+  const onScanned = (text: string, note: string) => {
     if (!editor) return;
-    setNotice(`reading ${file.name}…`);
-    try {
-      const fd = new FormData();
-      fd.append("image", file);
-      const r = await fetch(`${API_BASE}/api/v1/ocr`, { method: "POST", body: fd });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? `HTTP ${r.status}`);
+    setDraftId(newId());
+    editor.commands.setContent(toHtml(text));
+    setNotice(note);
+    setScanOpen(false);
+  };
 
-      if (!d.text) {
-        setNotice(d.warning ?? "no Tamil text found in that image");
-        return;
-      }
+  /**
+   * Voice typing. Only FINAL transcripts are inserted — interim results get rewritten
+   * as the recogniser hears more of the sentence, so inserting them is how dictation
+   * ends up duplicating half of everything you say.
+   */
+  const toggleVoice = () => {
+    if (!editor) return;
 
-      setDraftId(newId());
-      editor.commands.setContent(toHtml(d.text));
-
-      const conf = Math.round((d.confidence ?? 0) * 100);
-      setNotice(
-        `scanned (${conf}% legible)` +
-          (conf < 70 ? " — low confidence, please check it against the original" : ""),
-      );
-    } catch (e) {
-      setNotice((e as Error).message);
+    if (listening) {
+      voice.current?.stop();
+      voice.current = null;
+      setListening(false);
+      setInterim("");
+      return;
     }
+
+    const h = startVoice({
+      onFinal: (text) => {
+        setInterim("");
+        editor.chain().focus().insertContent(text + " ").run();
+      },
+      onInterim: setInterim,
+      onError: (m) => {
+        setNotice(m);
+        setListening(false);
+      },
+      onEnd: () => setListening(false),
+    });
+
+    if (!h) {
+      setNotice("Voice typing is not supported in this browser.");
+      return;
+    }
+    voice.current = h;
+    setListening(true);
+    setNotice("listening… speak Tamil");
   };
 
   const onExport = async (fmt: "txt" | "docx" | "pdf") => {
@@ -542,19 +570,17 @@ export default function Editor() {
             }}
           />
 
-          <button onClick={() => imageInput.current?.click()}>📷 Scan</button>
-          <input
-            ref={imageInput}
-            data-testid="image-input"
-            type="file"
-            accept="image/*"
-            hidden
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) onOCR(f);
-              e.target.value = "";
-            }}
-          />
+          <button onClick={() => setScanOpen(true)}>📷 Scan</button>
+
+          {voiceSupported() && (
+            <button
+              className={listening ? "rec" : ""}
+              onClick={toggleVoice}
+              aria-pressed={listening}
+            >
+              {listening ? "⏹ Stop" : "🎙 Speak"}
+            </button>
+          )}
 
           <button onClick={() => setWriterOpen((v) => !v)}>
             ✨ AI Writer
@@ -596,6 +622,13 @@ export default function Editor() {
           {/* Error-type legend (§17.1). Colour is never the only signal — each
               suggestion also carries a text badge naming its type — but the legend is
               what makes the underlines readable at a glance. */}
+          {/* Live dictation preview. Shown, never inserted — see toggleVoice. */}
+          {listening && interim && (
+            <div className="pt-interim" aria-live="polite">
+              {interim}
+            </div>
+          )}
+
           {ime && imeOn && (
             <ul
               className="pt-ime"
@@ -630,6 +663,8 @@ export default function Editor() {
           <span><i style={{ background: "var(--err-style)" }} /> style</span>
         </div>
       </div>
+
+      {scanOpen && <Scan onText={onScanned} onClose={() => setScanOpen(false)} />}
 
       <aside className="pt-side">
       {/*
@@ -705,6 +740,26 @@ export default function Editor() {
           </button>
         )}
 
+        {types.length > 1 && (
+          <div className="pt-filters">
+            <button
+              className={filter === "all" ? "on" : ""}
+              onClick={() => setFilter("all")}
+            >
+              all {suggestions.length}
+            </button>
+            {types.map((t) => (
+              <button
+                key={t}
+                className={`${t} ${filter === t ? "on" : ""}`}
+                onClick={() => setFilter(t)}
+              >
+                {t} {suggestions.filter((s) => s.type === t).length}
+              </button>
+            ))}
+          </div>
+        )}
+
         {suggestions.length === 0 && checking && (
           <div className="pt-skeleton" aria-hidden="true">
             <div style={{ width: "70%" }} />
@@ -720,7 +775,7 @@ export default function Editor() {
           </p>
         )}
 
-        {suggestions.map((s, i) => (
+        {shown.map(({ s, i }) => (
           <div key={`${s.start}-${s.original}-${i}`} className="pt-card">
             <div className="pt-fix">
               <del>{s.original}</del> <span className="pt-arrow">→</span>{" "}
