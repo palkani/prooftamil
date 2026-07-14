@@ -99,23 +99,38 @@ await page.waitForTimeout(1200);
 const imported = await page.locator(".pt-editor").innerText();
 check("import .txt", imported.includes("இரண்டாவது"));
 
-/* --- export --------------------------------------------------------------- */
-for (const fmt of [".txt", ".docx"]) {
+/* --- export (now via the modal, with the Pro gate) ------------------------ */
+for (const [label, fmt] of [["Plain text", ".txt"], ["Word", ".docx"]]) {
   try {
-    const dl = page.waitForEvent("download", { timeout: 15000 });
-    await page.locator(".pt-filebar button", { hasText: fmt }).click();
+    await page.locator(".pt-filebar button", { hasText: "Export" }).click();
+    await page.waitForSelector(".pt-modal");
+    await page.locator(".pt-paths button", { hasText: label }).click();
+
+    const dl = page.waitForEvent("download", { timeout: 20000 });
+    await page.locator(".pt-wactions button", { hasText: "Export as" }).click();
     const d = await dl;
+
     const out = `/tmp/pt-e2e-export${fmt}`;
     await d.saveAs(out);
     const size = fs.statSync(out).size;
-    // A DOCX that is a valid zip but has no Tamil in it would still be non-empty, so
-    // the size check is a floor, not a proof. It catches the common failure: an empty
-    // or truncated file.
     check(`export ${fmt}`, size > 100, `${d.suggestedFilename()}, ${size} bytes`);
   } catch (e) {
-    check(`export ${fmt}`, false, String(e).slice(0, 60));
+    check(`export ${fmt}`, false, String(e).split("\n")[0].slice(0, 70));
+    await page.keyboard.press("Escape").catch(() => {});
   }
 }
+
+// .txt must NOT be Pro-gated: it is the user's own words, and holding those hostage is
+// not a business model. Word/PDF are the formatting work we do for them.
+await page.locator(".pt-filebar button", { hasText: "Export" }).click();
+await page.waitForSelector(".pt-modal");
+await page.locator(".pt-paths button", { hasText: "Plain text" }).click();
+const txtGated = await page.locator(".pt-gate").count();
+await page.locator(".pt-paths button", { hasText: "Word" }).click();
+const docxGated = await page.locator(".pt-gate").count();
+check("export: .txt is free, .docx is Pro-gated", txtGated === 0 && docxGated > 0,
+  `txt gate:${txtGated} docx gate:${docxGated}`);
+await page.locator(".pt-wactions button", { hasText: "Cancel" }).click();
 
 check("no console errors", errors.length === 0, errors.slice(0, 2).join(" | "));
 
