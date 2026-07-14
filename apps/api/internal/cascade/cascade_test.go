@@ -103,10 +103,30 @@ func (f *fakeTier1) Analyze(_ context.Context, _, _, _ string) (*analyzeResponse
 	return &analyzeResponse{Suggestions: f.suggestions, Resolved: false}, nil
 }
 
-// newOrch builds an orchestrator with no Redis. cache.Exact with a nil client
-// returns ErrMiss on every Get and no-ops on Set, so the cascade runs uncached.
+// newOrch builds an orchestrator with no Redis and no model tier. cache.Exact
+// with a nil client returns ErrMiss on every Get and no-ops on Set, so the
+// cascade runs uncached.
 func newOrch(t1 Tier1, gate float64) *Orchestrator {
-	return NewOrchestrator(t1, cache.NewExact(nil, 0, "test"), gate, nil)
+	return NewOrchestrator(t1, nil, cache.NewExact(nil, 0, "test"), gate, nil)
+}
+
+// fakeModels stands in for Tiers 3–4 (Sarvam/Gemini) without a network.
+type fakeModels struct {
+	suggestions []Suggestion
+	err         error
+	calls       int
+}
+
+func (f *fakeModels) CorrectSentence(_ context.Context, _, _, _ string) ([]Suggestion, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.suggestions, nil
+}
+
+func newOrchWithModels(t1 Tier1, m ModelTier, gate float64) *Orchestrator {
+	return NewOrchestrator(t1, m, cache.NewExact(nil, 0, "test"), gate, nil)
 }
 
 func TestProofreadMapsSentenceOffsetsOntoTheDocument(t *testing.T) {
@@ -178,9 +198,9 @@ func TestProofreadSurvivesTier1Failure(t *testing.T) {
 }
 
 func TestProofreadAlwaysLeavesModelPending(t *testing.T) {
-	// Tier 1 cannot prove a sentence is CLEAN, so even a sentence it finds nothing
-	// wrong with must still fall through to the model tiers. Marking it resolved
-	// would silently drop every grammar and real-word error.
+	// With NO model tier configured (dev, no API keys), a sentence Tier 1 finds
+	// nothing wrong with is still not certified clean — Tier 1 cannot prove that.
+	// ModelPending says so, rather than implying the sentence was fully checked.
 	t1 := &fakeTier1{suggestions: nil}
 	o := newOrch(t1, 0.85)
 
@@ -190,6 +210,155 @@ func TestProofreadAlwaysLeavesModelPending(t *testing.T) {
 	}
 	if !res.ModelPending {
 		t.Error("ModelPending must be true: Tier 1 cannot certify a sentence as clean")
+	}
+}
+
+// --- model tiers (Phase 2) -------------------------------------------------
+
+func TestProofreadMergesModelSuggestionsWithTier1(t *testing.T) {
+	t1 := &fakeTier1{suggestions: []Suggestion{
+		{Start: 0, End: 4, Original: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 0.92},
+	}}
+	models := &fakeModels{suggestions: []Suggestion{
+		{Start: 5, End: 10, Original: "பையன்", Suggestion: "பையனை", Type: "grammar", Confidence: 0.9},
+	}}
+	o := newOrchWithModels(t1, models, 0.85)
+
+	res, err := o.Proofread(context.Background(), "அந்த பையன் வந்தான்.")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(res.Suggestions) != 2 {
+		t.Fatalf("got %d suggestions, want 2 (Tier 1 + model)", len(res.Suggestions))
+	}
+	// Both tiers ran, so nothing is outstanding.
+	if res.ModelPending {
+		t.Error("ModelPending must be false once the models have answered")
+	}
+}
+
+func TestModelSuggestionOverlappingTier1IsDropped(t *testing.T) {
+	// Both tiers flag the SAME word. Tier 1 wins: it is deterministic and free.
+	// Two underlines on one word is a UI bug, and applying both would corrupt the
+	// writer's text.
+	t1 := &fakeTier1{suggestions: []Suggestion{
+		{Start: 0, End: 4, Original: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 0.92},
+	}}
+	models := &fakeModels{suggestions: []Suggestion{
+		{Start: 0, End: 4, Original: "அந்த", Suggestion: "அந்தச்", Type: "sandhi", Confidence: 0.9},
+	}}
+	o := newOrchWithModels(t1, models, 0.85)
+
+	res, err := o.Proofread(context.Background(), "அந்த பையன் வந்தான்.")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(res.Suggestions) != 1 {
+		t.Fatalf("got %d, want 1 — the overlapping model suggestion must be dropped", len(res.Suggestions))
+	}
+	if res.Suggestions[0].Suggestion != "அந்தப்" {
+		t.Errorf("Tier 1 must win the overlap, got %q", res.Suggestions[0].Suggestion)
+	}
+}
+
+func TestModelOutageStillServesTier1Results(t *testing.T) {
+	// Sarvam and Gemini both down. Tier 1's findings are real and still worth
+	// showing — degrading to them beats failing the writer's request.
+	t1 := &fakeTier1{suggestions: []Suggestion{
+		{Start: 0, End: 4, Original: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 0.92},
+	}}
+	models := &fakeModels{err: errors.New("both models down")}
+	o := newOrchWithModels(t1, models, 0.85)
+
+	res, err := o.Proofread(context.Background(), "அந்த பையன் வந்தான்.")
+	if err != nil {
+		t.Fatalf("a model outage must not fail the request: %v", err)
+	}
+
+	if len(res.Suggestions) != 1 {
+		t.Errorf("Tier 1 results must survive a model outage, got %d", len(res.Suggestions))
+	}
+	if !res.ModelPending {
+		t.Error("ModelPending must be true — a tier could not be consulted")
+	}
+}
+
+func TestModelSuggestionsAreConfidenceGated(t *testing.T) {
+	models := &fakeModels{suggestions: []Suggestion{
+		{Start: 0, End: 4, Original: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 0.40},
+	}}
+	o := newOrchWithModels(&fakeTier1{}, models, 0.85)
+
+	res, err := o.Proofread(context.Background(), "அந்த பையன் வந்தான்.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Suggestions) != 0 {
+		t.Error("a model suggestion below the confidence gate must not reach the writer")
+	}
+}
+
+func TestStreamEmitsTier1BeforeTheModelResult(t *testing.T) {
+	// The point of streaming: deterministic corrections land in milliseconds while
+	// the model takes hundreds. The writer must see their spelling fixed while the
+	// grammar check is still in flight.
+	t1 := &fakeTier1{suggestions: []Suggestion{
+		{Start: 0, End: 4, Original: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 0.92},
+	}}
+	models := &fakeModels{suggestions: []Suggestion{
+		{Start: 5, End: 10, Original: "பையன்", Suggestion: "பையனை", Type: "grammar", Confidence: 0.9},
+	}}
+	o := newOrchWithModels(t1, models, 0.85)
+
+	var events []Event
+	err := o.Stream(context.Background(), "அந்த பையன் வந்தான்.", func(e Event) error {
+		events = append(events, e)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(events) != 3 {
+		t.Fatalf("got %d events, want 3 (tier1, model, done)", len(events))
+	}
+	if events[0].Suggestions[0].Type != "sandhi" {
+		t.Error("the first event must be Tier 1's — it is the fast one")
+	}
+	if events[1].Suggestions[0].Type != "grammar" {
+		t.Error("the second event must carry the model's residue")
+	}
+	if events[2].Type != "done" {
+		t.Errorf("last event = %q, want done", events[2].Type)
+	}
+	// The client must never receive the same underline twice.
+	if len(events[1].Suggestions) != 1 {
+		t.Error("the model event must carry ONLY what Tier 1 did not already send")
+	}
+}
+
+func TestStreamDoesNotCacheAPartialResultWhenModelsFail(t *testing.T) {
+	// If a model outage let a Tier-1-only result into the cache, every later
+	// request for that sentence would hit cache and never call the model — the
+	// outage would become permanent for that text.
+	t1 := &fakeTier1{}
+	models := &fakeModels{err: errors.New("models down")}
+	o := newOrchWithModels(t1, models, 0.85)
+
+	var done Event
+	err := o.Stream(context.Background(), "அந்த பையன் வந்தான்.", func(e Event) error {
+		if e.Type == "done" {
+			done = e
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !done.ModelPending {
+		t.Error("ModelPending must be true so the client knows the answer is incomplete")
 	}
 }
 

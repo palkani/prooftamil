@@ -16,6 +16,7 @@ import (
 	"github.com/prooftamil/api/internal/cache"
 	"github.com/prooftamil/api/internal/cascade"
 	"github.com/prooftamil/api/internal/config"
+	"github.com/prooftamil/api/internal/corrector"
 	"github.com/prooftamil/api/internal/handlers"
 	"github.com/prooftamil/api/internal/router"
 )
@@ -78,14 +79,20 @@ func run() error {
 	}
 	log.Info("dependencies registered", "deps", names)
 
-	// The cascade (§9, Phase 1). cacheVersion salts every cache key: bump it
+	// The cascade (§9, Phases 1–2). cacheVersion salts every cache key: bump it
 	// whenever the rules, lexicon, prompts, models or confidence gate change, or
 	// the cache will keep serving corrections produced by the OLD engine for a
 	// full CACHE_TTL_SECONDS (a week by default).
-	const cacheVersion = "1"
+	const cacheVersion = "2" // bumped: Phase 2 adds model-tier output to cached results
+
+	models, err := buildModelTier(cfg, clients.HTTP, log)
+	if err != nil {
+		return err
+	}
 
 	orch := cascade.NewOrchestrator(
 		cascade.NewMLClient(cfg.MLServiceURL, clients.HTTP),
+		models,
 		cache.NewExact(clients.Redis, cfg.CacheTTL, cacheVersion),
 		cfg.ConfidenceGate,
 		log,
@@ -119,6 +126,72 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 9*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// buildModelTier assembles Tiers 3–4: Sarvam primary, Gemini hedged fallback,
+// Gemini verifier (§8, Phase 2).
+//
+// Returns nil — a supported configuration — when no API keys are set. Dev has no
+// keys until the §1 accounts exist, and the cascade must still run on Tiers 1–2
+// rather than refusing to start. config.Load() already enforces that prod cannot
+// boot without them, so a nil model tier in prod is impossible.
+//
+// The verifier is Gemini in its second role: the same client, a different prompt.
+func buildModelTier(cfg *config.Config, httpc *http.Client, log *slog.Logger) (cascade.ModelTier, error) {
+	if cfg.SarvamAPIKey == "" && cfg.GeminiAPIKey == "" {
+		log.Warn("no model API keys configured; cascade runs Tier 1 + 2 only " +
+			"(deterministic rules and cache). Grammar and real-word errors will NOT be caught.")
+		return nil, nil
+	}
+
+	correctorPrompt, err := corrector.LoadPrompt("corrector", 1)
+	if err != nil {
+		return nil, err
+	}
+	verifierPrompt, err := corrector.LoadPrompt("verifier", 1)
+	if err != nil {
+		return nil, err
+	}
+
+	// A 20s client timeout would let one slow sentence hold a user's editor. The
+	// hedge (HEDGE_DELAY_MS) is the real latency control; this is just a backstop.
+	modelHTTP := &http.Client{Timeout: 20 * time.Second}
+
+	var primary, fallback corrector.Corrector
+	var verifier corrector.Verifier
+
+	if cfg.SarvamAPIKey != "" {
+		primary = corrector.NewSarvam(
+			cfg.SarvamAPIKey, cfg.SarvamBaseURL, "sarvam-m", correctorPrompt, modelHTTP)
+	}
+	if cfg.GeminiAPIKey != "" {
+		g := corrector.NewGemini(
+			cfg.GeminiAPIKey, cfg.GeminiBaseURL, "gemini-2.5-flash",
+			correctorPrompt, verifierPrompt, modelHTTP)
+		fallback = g
+		verifier = g
+	}
+
+	opts := []corrector.RouterOption{}
+	if verifier != nil {
+		// Suggestions below the confidence gate are the ones we would otherwise have
+		// to throw away. Sending them to the verifier is what gives them a chance to
+		// be shown — with a second opinion behind them.
+		opts = append(opts, corrector.WithVerifier(verifier, cfg.ConfidenceGate))
+	}
+
+	log.Info("model tier configured",
+		"primary", nameOf(primary), "fallback", nameOf(fallback),
+		"hedge_delay", cfg.HedgeDelay, "verify_below", cfg.ConfidenceGate)
+
+	return corrector.NewRouter(primary, fallback, cfg.HedgeDelay, log, opts...), nil
+}
+
+func nameOf(c corrector.Corrector) string {
+	if c == nil {
+		return "none"
+	}
+	return c.Name()
 }
 
 func newLogger(cfg *config.Config) *slog.Logger {
