@@ -137,3 +137,41 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; }
 .pt-actions button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
 
 .pt-loading { color: var(--muted); padding: 3rem 0; }
+
+/* ---------------------------------------------------------------- file bar */
+.pt-filebar {
+  display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin-bottom: .6rem;
+}
+.pt-filebar button {
+  padding: .3rem .7rem; font-size: .8rem; cursor: pointer;
+  background: transparent; color: var(--fg);
+  border: 1px solid var(--line); border-radius: 6px;
+}
+.pt-filebar button:hover { border-color: var(--accent); color: var(--accent); }
+.pt-sep { width: 1px; height: 18px; background: var(--line); margin: 0 .3rem; }
+.pt-saved {
+  margin-left: auto; color: var(--muted); font-size: .78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ----------------------------------------------------------------- drafts */
+.pt-side { display: flex; flex-direction: column; gap: 1rem; position: sticky; top: 1rem; }
+.pt-panel { position: static; }   /* the wrapper is sticky now, not each panel */
+
+.pt-drafts h2 { margin-bottom: .5rem; }
+.pt-draft {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .35rem .5rem; border-radius: 6px; cursor: pointer; font-size: .85rem;
+}
+.pt-draft:hover { background: rgba(128,128,128,.09); }
+.pt-draft.cur { background: rgba(11,110,79,.12); font-weight: 600; }
+@media (prefers-color-scheme: dark) { .pt-draft.cur { background: rgba(74,222,128,.14); } }
+.pt-draft-title {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pt-del {
+  background: none; border: 0; color: var(--muted); cursor: pointer;
+  font-size: 1.05rem; line-height: 1; padding: 0 .2rem; opacity: 0;
+}
+.pt-draft:hover .pt-del { opacity: 1; }
+.pt-del:hover { color: var(--red); }

@@ -7,6 +7,14 @@ import StarterKit from "@tiptap/starter-kit";
 import { TextSelection } from "@tiptap/pm/state";
 
 import { ProofreadClient, suggestTamil } from "@/lib/api";
+import {
+  type Draft,
+  listDrafts,
+  newId,
+  removeDraft,
+  saveDraft,
+} from "@/lib/drafts";
+import { exportDocx, exportPdf, exportTxt, importFile } from "@/lib/documents";
 import { remember, rerank } from "@/lib/ime-history";
 import {
   buildPositionMap,
@@ -26,6 +34,14 @@ const PROOFREAD_DEBOUNCE_MS = 700;
 
 /** The IME must feel instant, so it barely debounces at all. */
 const IME_DEBOUNCE_MS = 60;
+
+/**
+ * Autosave. Far more frequent than proofreading, because losing someone's writing is
+ * catastrophic while a slightly-late spellcheck is merely annoying. Writing to
+ * localStorage is cheap; the debounce exists only to avoid serialising on every
+ * keypress.
+ */
+const AUTOSAVE_DEBOUNCE_MS = 400;
 
 const SAMPLE = "அந்த பையன் வந்தான். அவர்கள் வனிகர்கள். நாங்கள் நகரத்திற்கு போனேன்.";
 
@@ -55,16 +71,39 @@ interface IMEState {
   coords: { left: number; top: number };
 }
 
+/**
+ * Plain text -> the HTML TipTap wants.
+ *
+ * One <p> per line, and the escaping matters: imported .docx/.pdf content is
+ * untrusted input, and feeding it to setContent() as raw HTML would let a crafted
+ * document inject markup into the editor.
+ */
+function toHtml(text: string): string {
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const paras = text.split(/\n/).map((l) => `<p>${esc(l) || "<br>"}</p>`);
+  return paras.join("") || "<p></p>";
+}
+
 export default function Editor() {
   const [suggestions, setSugg] = useState<Suggestion[]>([]);
   const [status, setStatus] = useState("");
   const [imeOn, setImeOn] = useState(true);
   const [ime, setIme] = useState<IMEState | null>(null);
 
+  const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [draftId, setDraftId] = useState<string>("");
+  const [saved, setSaved] = useState("");
+  const [notice, setNotice] = useState("");
+
   const proofreader = useMemo(() => new ProofreadClient(), []);
   const proofTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const imeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const imeAbort = useRef<AbortController | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const draftIdRef = useRef("");
+  draftIdRef.current = draftId;
 
   // The IME dropdown is driven from keydown, which does not re-render, so it needs
   // the current state in a ref rather than the closed-over value.
@@ -138,6 +177,19 @@ export default function Editor() {
           (s) => runes.slice(s.start, s.end).join("") === s.original,
         ),
       );
+
+      // Autosave FIRST, and on a shorter debounce than anything else. Losing
+      // someone's writing is catastrophic; a late spellcheck is merely annoying.
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => {
+        const id = draftIdRef.current || newId();
+        if (!draftIdRef.current) setDraftId(id);
+        saveDraft(id, text);
+        setDrafts(listDrafts());
+        setSaved(
+          new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        );
+      }, AUTOSAVE_DEBOUNCE_MS);
 
       // Proofreading: debounced, and every new run cancels the last. A person types
       // faster than a model answers, so results for text the user has already
@@ -316,6 +368,77 @@ export default function Editor() {
     [editor],
   );
 
+  /* -------------------------------------------------------- drafts & files */
+
+  // Restore the most recent draft on load. A writer who closes the tab and comes back
+  // must find their work, not a blank page.
+  useEffect(() => {
+    if (!editor) return;
+    const all = listDrafts();
+    setDrafts(all);
+
+    const latest = all[0];
+    if (latest?.body.trim()) {
+      setDraftId(latest.id);
+      editor.commands.setContent(toHtml(latest.body));
+    } else {
+      setDraftId(newId());
+    }
+    // Only on mount: re-running this would stomp on what the user is typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
+
+  const openDraft = (d: Draft) => {
+    if (!editor) return;
+    setDraftId(d.id);
+    editor.commands.setContent(toHtml(d.body));
+    setSugg([]);
+    setNotice("");
+  };
+
+  const newDraft = () => {
+    if (!editor) return;
+    setDraftId(newId());
+    editor.commands.setContent("<p></p>");
+    setSugg([]);
+    setNotice("");
+    editor.commands.focus();
+  };
+
+  const deleteDraft = (id: string) => {
+    removeDraft(id);
+    const rest = listDrafts();
+    setDrafts(rest);
+    if (id === draftId) newDraft();
+  };
+
+  const onImport = async (file: File) => {
+    if (!editor) return;
+    setNotice(`importing ${file.name}…`);
+    try {
+      const { text, warnings } = await importFile(file);
+      setDraftId(newId());
+      editor.commands.setContent(toHtml(text));
+      setNotice(warnings.join(" ") || `imported ${file.name}`);
+    } catch (e) {
+      setNotice((e as Error).message);
+    }
+  };
+
+  const onExport = async (fmt: "txt" | "docx" | "pdf") => {
+    if (!editor) return;
+    const text = editor.getText();
+    if (!text.trim()) return setNotice("nothing to export");
+    try {
+      if (fmt === "txt") exportTxt(text);
+      else if (fmt === "docx") await exportDocx(text);
+      else exportPdf(text);
+      setNotice(`exported as ${fmt.toUpperCase()}`);
+    } catch (e) {
+      setNotice((e as Error).message);
+    }
+  };
+
   /* ------------------------------------------------------------------- view */
 
   if (!editor) return <div className="pt-loading">loading editor…</div>;
@@ -323,6 +446,33 @@ export default function Editor() {
   return (
     <div className="pt-layout">
       <div className="pt-main">
+        <div className="pt-filebar">
+          <button onClick={newDraft}>New</button>
+
+          <button onClick={() => fileInput.current?.click()}>Import</button>
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".txt,.md,.docx,.pdf"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onImport(f);
+              e.target.value = ""; // so the same file can be picked twice
+            }}
+          />
+
+          <span className="pt-sep" />
+
+          <button onClick={() => onExport("txt")}>.txt</button>
+          <button onClick={() => onExport("docx")}>.docx</button>
+          <button onClick={() => onExport("pdf")}>.pdf</button>
+
+          <span className="pt-saved">
+            {notice || (saved && `saved ${saved}`)}
+          </span>
+        </div>
+
         <div className="pt-toolbar">
           <label className="pt-toggle">
             <input
@@ -373,7 +523,33 @@ export default function Editor() {
         </div>
       </div>
 
-      <aside className="pt-panel">
+      <aside className="pt-side">
+      {drafts.length > 0 && (
+        <div className="pt-panel pt-drafts">
+          <h2>Drafts</h2>
+          {drafts.slice(0, 8).map((d) => (
+            <div
+              key={d.id}
+              className={`pt-draft ${d.id === draftId ? "cur" : ""}`}
+              onClick={() => openDraft(d)}
+            >
+              <span className="pt-draft-title">{d.title}</span>
+              <button
+                className="pt-del"
+                title="Delete"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteDraft(d.id);
+                }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="pt-panel">
         <h2>
           Suggestions <span className="pt-count">{suggestions.length}</span>
         </h2>
@@ -410,6 +586,7 @@ export default function Editor() {
             </div>
           </div>
         ))}
+      </div>
       </aside>
     </div>
   );

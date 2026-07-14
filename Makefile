@@ -84,6 +84,10 @@ test: ## Run all tests
 	cd apps/api && go test ./...
 	cd apps/ml  && ./.venv/bin/pytest -q
 
+.PHONY: e2e
+e2e: ## Drive the real editor in a browser (needs `make demo` running)
+	cd apps/web && npm run e2e
+
 .PHONY: lint
 lint: ## Lint every language
 	cd apps/api && go vet ./... && gofmt -l . | (! grep .) || (echo "gofmt: files need formatting"; exit 1)
