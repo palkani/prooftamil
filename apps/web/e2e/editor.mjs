@@ -14,7 +14,8 @@
 import { chromium } from "playwright";
 import fs from "node:fs";
 
-const URL = process.env.E2E_URL ?? "http://localhost:4000";
+// The editor lives at /write; / is the anonymous landing demo.
+const URL = process.env.E2E_URL ?? "http://localhost:4000/write";
 
 let failures = 0;
 const check = (name, ok, detail = "") => {
