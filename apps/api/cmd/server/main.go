@@ -83,7 +83,7 @@ func run() error {
 	// whenever the rules, lexicon, prompts, models or confidence gate change, or
 	// the cache will keep serving corrections produced by the OLD engine for a
 	// full CACHE_TTL_SECONDS (a week by default).
-	const cacheVersion = "2" // bumped: Phase 2 adds model-tier output to cached results
+	const cacheVersion = "3" // bumped: corrector prompt v2 changes model output
 
 	models, err := buildModelTier(cfg, clients.HTTP, log)
 	if err != nil {
@@ -144,7 +144,10 @@ func buildModelTier(cfg *config.Config, httpc *http.Client, log *slog.Logger) (c
 		return nil, nil
 	}
 
-	correctorPrompt, err := corrector.LoadPrompt("corrector", 1)
+	// v2: the model quotes the text it wants changed; the server computes the
+	// offsets. v1 asked the model for start/end and it echoed the offsets from its
+	// own few-shot example instead of counting — see corrector.v2.md.
+	correctorPrompt, err := corrector.LoadPrompt("corrector", 2)
 	if err != nil {
 		return nil, err
 	}
@@ -159,20 +162,49 @@ func buildModelTier(cfg *config.Config, httpc *http.Client, log *slog.Logger) (c
 	// (HEDGE_DELAY_MS) is the real latency control; this is only a backstop.
 	modelHTTP := &http.Client{Timeout: 60 * time.Second}
 
+	// PRIMARY = GEMINI, FALLBACK = SARVAM.
+	//
+	// This inverts the plan (§8 specified Sarvam primary, Gemini verifier). The
+	// live numbers, measured over the eval sentences, left no room for debate:
+	//
+	//              p50      tail    correct   notes
+	//   Gemini     0.9s     1.2s     5/6      0 false positives
+	//   Sarvam     7.8s    17.8s     ~3/6     inconsistent between identical calls;
+	//                                          1-in-6 returned no answer at all;
+	//                                          once replied in English
+	//
+	// Sarvam is slower, less accurate and less reliable than the model it was meant
+	// to lead. Its models are reasoning models whose (undisableable) chain-of-thought
+	// eats the token budget — see the Sarvam client for the full autopsy.
+	//
+	// Sarvam is KEPT as the fallback rather than dropped: a second, independent
+	// provider is what stops a Google outage taking the whole product down, and on
+	// the hedged path it is only ever called when Gemini is already failing or slow.
+	// Revisit if the startup credits lift the 4096-token cap.
 	var primary, fallback corrector.Corrector
 	var verifier corrector.Verifier
 
-	if cfg.SarvamAPIKey != "" {
-		primary = corrector.NewSarvam(
-			cfg.SarvamAPIKey, cfg.SarvamBaseURL, cfg.SarvamModel, cfg.SarvamMaxTokens,
-			correctorPrompt, modelHTTP)
-	}
 	if cfg.GeminiAPIKey != "" {
 		g := corrector.NewGemini(
 			cfg.GeminiAPIKey, cfg.GeminiBaseURL, cfg.GeminiModel,
 			correctorPrompt, verifierPrompt, modelHTTP)
-		fallback = g
+		primary = g
 		verifier = g
+	}
+	if cfg.SarvamAPIKey != "" {
+		sarvam := corrector.NewSarvam(
+			cfg.SarvamAPIKey, cfg.SarvamBaseURL, cfg.SarvamModel, cfg.SarvamMaxTokens,
+			correctorPrompt, modelHTTP)
+
+		if primary == nil {
+			// No Gemini key: Sarvam is all we have. Better than no model tier, but
+			// the editor will feel slow and miss errors.
+			primary = sarvam
+			log.Warn("no Gemini key; falling back to Sarvam as PRIMARY. " +
+				"Expect ~8s per sentence and inconsistent corrections.")
+		} else {
+			fallback = sarvam
+		}
 	}
 
 	opts := []corrector.RouterOption{}

@@ -35,7 +35,7 @@ func TestSarvamParsesAChatCompletion(t *testing.T) {
 		// as a JSON string inside the assistant message.
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{
-          "choices": [{"message": {"content": "{\"suggestions\":[{\"start\":0,\"end\":4,\"original\":\"அந்த\",\"suggestion\":\"அந்தப்\",\"type\":\"sandhi\",\"explanation\":\"விதி\",\"confidence\":0.95}]}"}}],
+          "choices": [{"message": {"content": "{\"suggestions\":[{\"original\":\"அந்த\",\"suggestion\":\"அந்தப்\",\"type\":\"sandhi\",\"explanation\":\"விதி\",\"confidence\":0.95}]}"}}],
           "usage": {"prompt_tokens": 120, "completion_tokens": 40}
         }`)
 	}))
@@ -98,12 +98,12 @@ func TestSarvamSurfacesAnAPIError(t *testing.T) {
 	}
 }
 
-func TestSarvamRejectsAHallucinatedSpanOverTheWire(t *testing.T) {
+func TestSarvamRejectsHallucinatedTextOverTheWire(t *testing.T) {
 	// End to end: a model claiming a span that does not contain what it says must
 	// not reach the writer's document, even when the HTTP call itself succeeds.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `{
-          "choices": [{"message": {"content": "{\"suggestions\":[{\"start\":0,\"end\":4,\"original\":\"NOT_IN_TEXT\",\"suggestion\":\"x\",\"type\":\"spelling\",\"confidence\":0.99}]}"}}],
+          "choices": [{"message": {"content": "{\"suggestions\":[{\"original\":\"NOT_IN_TEXT\",\"suggestion\":\"x\",\"type\":\"spelling\",\"confidence\":0.99}]}"}}],
           "usage": {}
         }`)
 	}))
@@ -116,7 +116,7 @@ func TestSarvamRejectsAHallucinatedSpanOverTheWire(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(resp.Suggestions) != 0 {
-		t.Error("a hallucinated span must be dropped even at 0.99 confidence")
+		t.Error("text absent from the target must be dropped even at 0.99 confidence")
 	}
 }
 
@@ -159,7 +159,7 @@ func TestSarvamTruncatedReasoningIsAnErrorNotACleanDocument(t *testing.T) {
 func TestSarvamTruncatedAnswerIsRefused(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `{
-          "choices": [{"finish_reason": "length", "message": {"content": "{\"suggestions\":[{\"start\":0,\"end\":4,\"original\":\"அந்த\",\"suggestion\":\"அந்தப்\",\"type\":\"sandhi\",\"confidence\":0.9}]}"}}],
+          "choices": [{"finish_reason": "length", "message": {"content": "{\"suggestions\":[{\"original\":\"அந்த\",\"suggestion\":\"அந்தப்\",\"type\":\"sandhi\",\"confidence\":0.9}]}"}}],
           "usage": {"completion_tokens": 4096}
         }`)
 	}))
@@ -179,7 +179,7 @@ func TestGeminiParsesGenerateContent(t *testing.T) {
 		gotKey = r.Header.Get("x-goog-api-key")
 		gotPath = r.URL.Path
 		_, _ = io.WriteString(w, `{
-          "candidates": [{"content": {"parts": [{"text": "{\"suggestions\":[{\"start\":0,\"end\":4,\"original\":\"அந்த\",\"suggestion\":\"அந்தப்\",\"type\":\"sandhi\",\"confidence\":0.91}]}"}]}}],
+          "candidates": [{"content": {"parts": [{"text": "{\"suggestions\":[{\"original\":\"அந்த\",\"suggestion\":\"அந்தப்\",\"type\":\"sandhi\",\"confidence\":0.91}]}"}]}}],
           "usageMetadata": {"promptTokenCount": 90, "candidatesTokenCount": 30}
         }`)
 	}))

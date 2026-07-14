@@ -105,7 +105,14 @@ func Load() (*Config, error) {
 	if c.JWTRefreshTTL, err = envDuration("JWT_REFRESH_TTL", "168h"); err != nil {
 		errs = append(errs, err.Error())
 	}
-	if c.HedgeDelay, err = envDurationMS("HEDGE_DELAY_MS", 800); err != nil {
+	// 2500ms, not the plan's 800ms.
+	//
+	// The hedge should fire only on a genuine tail event. Measured live, the primary
+	// (Gemini, thinking off) has p50 946ms and a 1210ms tail — so an 800ms hedge
+	// would fire on roughly HALF of all requests, doubling model spend. Worse, it
+	// would race in Sarvam, which is ~8x slower, so the hedge could not even win.
+	// 2500ms sits comfortably beyond the primary's tail.
+	if c.HedgeDelay, err = envDurationMS("HEDGE_DELAY_MS", 2500); err != nil {
 		errs = append(errs, err.Error())
 	}
 	if c.CacheTTL, err = envDurationSec("CACHE_TTL_SECONDS", 604800); err != nil {

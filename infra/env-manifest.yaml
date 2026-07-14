@@ -45,16 +45,26 @@ services:
       - { key: ML_SERVICE_URL,    type: config, value: "${ML_SERVICE_URL}" }
 
       # Models (§8)
-      - { key: SARVAM_API_KEY,  type: secret, secret: sarvam-api-key }
-      - { key: SARVAM_BASE_URL, type: config, value: "https://api.sarvam.ai" }
-      - { key: GEMINI_API_KEY,  type: secret, secret: gemini-api-key }
-      - { key: GEMINI_BASE_URL, type: config, value: "https://generativelanguage.googleapis.com" }
+      # Model IDs are CONFIG, never constants. `sarvam-m` was deprecated out from
+      # under this code between writing it and the first live call; a provider
+      # retiring a model must be a config change, not a deploy.
+      - { key: SARVAM_API_KEY,    type: secret, secret: sarvam-api-key }
+      - { key: SARVAM_BASE_URL,   type: config, value: "https://api.sarvam.ai" }
+      - { key: SARVAM_MODEL,      type: config, value: "sarvam-30b" }
+      # 4096 is the ceiling on the free "starter" tier; the API rejects more. It has
+      # to cover Sarvam's undisableable reasoning trace AND the answer.
+      - { key: SARVAM_MAX_TOKENS, type: config, value: "4096" }
+      - { key: GEMINI_API_KEY,    type: secret, secret: gemini-api-key }
+      - { key: GEMINI_BASE_URL,   type: config, value: "https://generativelanguage.googleapis.com" }
+      - { key: GEMINI_MODEL,      type: config, value: "gemini-2.5-flash" }
 
       # Cascade tuning (§3.1)
       - { key: MODEL_ROUTER_CONFIG,           type: config, value: "{}" }
       - { key: SEMANTIC_SIMILARITY_THRESHOLD, type: config, value: "0.92" }
       - { key: CACHE_TTL_SECONDS,             type: config, value: "604800" }
-      - { key: HEDGE_DELAY_MS,                type: config, value: "800" }
+      # 2500, not 800: the primary (Gemini) has a measured p50 of 946ms, so an 800ms
+      # hedge would fire on ~half of all requests and double model spend.
+      - { key: HEDGE_DELAY_MS,                type: config, value: "2500" }
       - { key: CONFIDENCE_GATE,               type: config, value: "0.85" }
 
       # Billing + email

@@ -62,9 +62,14 @@ type Verdict struct {
 // rawSuggestion is the model's wire shape, before validation. It is deliberately
 // separate from cascade.Suggestion: nothing a model says is trusted until it has
 // been through validate().
+//
+// Note there are NO offsets here. Prompt v1 asked the model for start/end and it
+// failed against the live API in the worst way: Gemini echoed the offsets from the
+// prompt's own few-shot example (18/24) rather than counting the real sentence
+// (20/26). LLMs cannot count characters reliably, so we stopped asking. The model
+// quotes the substring; validate() locates it and derives the offsets, which is
+// exact by construction.
 type rawSuggestion struct {
-	Start       int     `json:"start"`
-	End         int     `json:"end"`
 	Original    string  `json:"original"`
 	Suggestion  string  `json:"suggestion"`
 	Type        string  `json:"type"`
@@ -104,21 +109,19 @@ func validate(raw rawResponse, target string, tier cascade.Tier) ([]cascade.Sugg
 	runes := []rune(target)
 	out := make([]cascade.Suggestion, 0, len(raw.Suggestions))
 
+	// Tracks which parts of the sentence are already spoken for, so two suggestions
+	// cannot claim the same word and so repeated words map to successive
+	// occurrences rather than all collapsing onto the first.
+	taken := make([]bool, len(runes))
+
 	for _, r := range raw.Suggestions {
-		if r.Start < 0 || r.End > len(runes) || r.Start >= r.End {
-			continue // out of range or inverted
-		}
 		if !validTypes[r.Type] {
 			continue
 		}
 		if r.Confidence < 0 || r.Confidence > 1 {
 			continue
 		}
-
-		// The anchor check: does the span the model pointed at actually contain the
-		// text it claims? If not, the model is hallucinating a location and we must
-		// not apply it to the user's document.
-		if got := string(runes[r.Start:r.End]); got != r.Original {
+		if r.Original == "" || !utf8.ValidString(r.Suggestion) {
 			continue
 		}
 
@@ -126,13 +129,22 @@ func validate(raw rawResponse, target string, tier cascade.Tier) ([]cascade.Sugg
 		if strings.TrimSpace(r.Suggestion) == "" || r.Suggestion == r.Original {
 			continue
 		}
-		if !utf8.ValidString(r.Suggestion) {
+
+		// THE ANCHOR. The model quoted a substring; find it. If it is not there
+		// verbatim, the model invented it — it hallucinated, paraphrased, or (seen
+		// live from Sarvam) answered in English. Either way it must not touch the
+		// writer's document.
+		start, end, ok := locate(runes, []rune(r.Original), taken)
+		if !ok {
 			continue
+		}
+		for i := start; i < end; i++ {
+			taken[i] = true
 		}
 
 		out = append(out, cascade.Suggestion{
-			Start:       r.Start,
-			End:         r.End,
+			Start:       start,
+			End:         end,
 			Original:    r.Original,
 			Suggestion:  r.Suggestion,
 			Type:        r.Type,
@@ -142,7 +154,36 @@ func validate(raw rawResponse, target string, tier cascade.Tier) ([]cascade.Sugg
 		})
 	}
 
+	// The model returns suggestions in whatever order it pleases; the editor needs
+	// them in document order.
+	sortByPosition(out)
 	return out, nil
+}
+
+// locate finds the first occurrence of `needle` in `hay` that does not overlap a
+// span already claimed by an earlier suggestion.
+//
+// Offsets are computed HERE rather than taken from the model, because the model
+// cannot count characters — prompt v1 proved it by echoing the offsets from its own
+// few-shot example. Deriving them from a verbatim quote is exact by construction.
+func locate(hay, needle []rune, taken []bool) (start, end int, ok bool) {
+	if len(needle) == 0 || len(needle) > len(hay) {
+		return 0, 0, false
+	}
+
+	for i := 0; i+len(needle) <= len(hay); i++ {
+		match := true
+		for j := range needle {
+			if hay[i+j] != needle[j] || taken[i+j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return i, i + len(needle), true
+		}
+	}
+	return 0, 0, false
 }
 
 // extractJSON pulls the JSON object out of a model reply.

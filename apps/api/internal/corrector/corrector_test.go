@@ -15,9 +15,10 @@ import (
 
 const target = "அந்த பையன் வந்தான்" // அந்த = runes 0..4
 
-func TestValidateAcceptsAWellFormedSuggestion(t *testing.T) {
+func TestValidateLocatesTheQuotedTextAndDerivesOffsets(t *testing.T) {
+	// The model quotes; the SERVER computes offsets. It never sends start/end.
 	raw := rawResponse{Suggestions: []rawSuggestion{
-		{Start: 0, End: 4, Original: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 0.95},
+		{Original: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 0.95},
 	}}
 
 	got, err := validate(raw, target, cascade.TierPrimary)
@@ -27,51 +28,59 @@ func TestValidateAcceptsAWellFormedSuggestion(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("got %d suggestions, want 1", len(got))
 	}
+
+	// Derived offsets must actually index the quoted word.
+	runes := []rune(target)
+	if s := string(runes[got[0].Start:got[0].End]); s != "அந்த" {
+		t.Errorf("derived offsets [%d:%d] select %q, want அந்த", got[0].Start, got[0].End, s)
+	}
 	if got[0].SourceTier != cascade.TierPrimary {
 		t.Errorf("source tier = %d, want %d", got[0].SourceTier, cascade.TierPrimary)
 	}
 }
 
-func TestValidateRejectsAHallucinatedSpan(t *testing.T) {
-	// The model claims runes 0..4 contain "பையன்", but they contain "அந்த".
-	// This is the check that matters most: we slice the USER'S DOCUMENT with these
-	// offsets. A model that invents a location must never reach the editor.
+// REGRESSION (found live). Prompt v1 asked the model for character offsets, and
+// Gemini returned the offsets memorised from the prompt's own few-shot example
+// (18/24) rather than counting the real sentence (20/26). Deriving offsets from the
+// quoted text makes the whole class of bug impossible: wherever the word actually
+// is, that is where the underline goes.
+func TestOffsetsAreDerivedNotTrusted(t *testing.T) {
+	sentence := "நாங்கள் நகரத்திற்கு போனேன்." // போனேன் truly sits at runes 20..26
 	raw := rawResponse{Suggestions: []rawSuggestion{
-		{Start: 0, End: 4, Original: "பையன்", Suggestion: "பையனை", Type: "grammar", Confidence: 0.9},
+		{Original: "போனேன்", Suggestion: "போனோம்", Type: "agreement", Confidence: 0.96},
 	}}
 
-	got, _ := validate(raw, target, cascade.TierPrimary)
-	if len(got) != 0 {
-		t.Errorf("a suggestion whose `original` does not match the span must be dropped, got %+v", got)
+	got, _ := validate(raw, sentence, cascade.TierPrimary)
+	if len(got) != 1 {
+		t.Fatalf("got %d, want 1 — this correction was being silently dropped", len(got))
+	}
+	if got[0].Start != 20 || got[0].End != 26 {
+		t.Errorf("offsets = [%d:%d], want [20:26]", got[0].Start, got[0].End)
+	}
+	if s := string([]rune(sentence)[got[0].Start:got[0].End]); s != "போனேன்" {
+		t.Errorf("offsets select %q, want போனேன்", s)
 	}
 }
 
-func TestValidateRejectsOutOfRangeOffsets(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		start, end int
-	}{
-		{"end past the sentence", 0, 9999},
-		{"negative start", -1, 4},
-		{"inverted", 4, 0},
-		{"empty span", 2, 2},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			raw := rawResponse{Suggestions: []rawSuggestion{
-				{Start: tc.start, End: tc.end, Original: "x", Suggestion: "y", Type: "spelling", Confidence: 0.9},
-			}}
-			if got, _ := validate(raw, target, cascade.TierPrimary); len(got) != 0 {
-				t.Errorf("offsets (%d,%d) must be rejected", tc.start, tc.end)
-			}
-		})
+func TestValidateRejectsTextThatIsNotInTheSentence(t *testing.T) {
+	// The model quoted something that does not appear in the target: it
+	// hallucinated, paraphrased, or (observed live from Sarvam) answered in
+	// English. It must not touch the writer's document.
+	for _, orig := range []string{"NOT_IN_TEXT", "they vanijars", "பையன்கள்"} {
+		raw := rawResponse{Suggestions: []rawSuggestion{
+			{Original: orig, Suggestion: "x", Type: "grammar", Confidence: 0.99},
+		}}
+		if got, _ := validate(raw, target, cascade.TierPrimary); len(got) != 0 {
+			t.Errorf("quoting %q (absent from the target) must be rejected", orig)
+		}
 	}
 }
 
 func TestValidateRejectsUnknownTypeAndInsaneConfidence(t *testing.T) {
 	for _, raw := range []rawSuggestion{
-		{Start: 0, End: 4, Original: "அந்த", Suggestion: "அந்தப்", Type: "vibes", Confidence: 0.9},
-		{Start: 0, End: 4, Original: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 7.0},
-		{Start: 0, End: 4, Original: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: -1},
+		{Original: "அந்த", Suggestion: "அந்தப்", Type: "vibes", Confidence: 0.9},
+		{Original: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 7.0},
+		{Original: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: -1},
 	} {
 		if got, _ := validate(rawResponse{Suggestions: []rawSuggestion{raw}}, target, cascade.TierPrimary); len(got) != 0 {
 			t.Errorf("must reject %+v", raw)
@@ -82,7 +91,7 @@ func TestValidateRejectsUnknownTypeAndInsaneConfidence(t *testing.T) {
 func TestValidateRejectsANoOpCorrection(t *testing.T) {
 	// "Correcting" a word to itself is noise in the editor.
 	raw := rawResponse{Suggestions: []rawSuggestion{
-		{Start: 0, End: 4, Original: "அந்த", Suggestion: "அந்த", Type: "sandhi", Confidence: 0.9},
+		{Original: "அந்த", Suggestion: "அந்த", Type: "sandhi", Confidence: 0.9},
 	}}
 	if got, _ := validate(raw, target, cascade.TierPrimary); len(got) != 0 {
 		t.Error("a suggestion that changes nothing must be dropped")
@@ -90,10 +99,10 @@ func TestValidateRejectsANoOpCorrection(t *testing.T) {
 }
 
 func TestValidateKeepsGoodRowsWhenOneRowIsBad(t *testing.T) {
-	// One malformed row must not discard the model's correct work.
+	// One unlocatable row must not discard the model's correct work.
 	raw := rawResponse{Suggestions: []rawSuggestion{
-		{Start: 0, End: 4, Original: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 0.95},
-		{Start: 0, End: 9999, Original: "junk", Suggestion: "junk2", Type: "spelling", Confidence: 0.9},
+		{Original: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 0.95},
+		{Original: "junk", Suggestion: "junk2", Type: "spelling", Confidence: 0.9},
 	}}
 
 	got, _ := validate(raw, target, cascade.TierPrimary)
@@ -102,6 +111,31 @@ func TestValidateKeepsGoodRowsWhenOneRowIsBad(t *testing.T) {
 	}
 	if got[0].Suggestion != "அந்தப்" {
 		t.Errorf("kept the wrong row: %+v", got[0])
+	}
+}
+
+// A word that repeats must not have both suggestions collapse onto the first
+// occurrence — that would leave the second instance uncorrected and double-underline
+// the first.
+func TestRepeatedWordMapsToSuccessiveOccurrences(t *testing.T) {
+	sentence := "அந்த பையன் அந்த பெண்"
+	raw := rawResponse{Suggestions: []rawSuggestion{
+		{Original: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 0.95},
+		{Original: "அந்த", Suggestion: "அந்தப்", Type: "sandhi", Confidence: 0.95},
+	}}
+
+	got, _ := validate(raw, sentence, cascade.TierPrimary)
+	if len(got) != 2 {
+		t.Fatalf("got %d, want 2", len(got))
+	}
+	if got[0].Start == got[1].Start {
+		t.Error("both suggestions landed on the same occurrence")
+	}
+	runes := []rune(sentence)
+	for _, s := range got {
+		if string(runes[s.Start:s.End]) != "அந்த" {
+			t.Errorf("offsets [%d:%d] do not select அந்த", s.Start, s.End)
+		}
 	}
 }
 
