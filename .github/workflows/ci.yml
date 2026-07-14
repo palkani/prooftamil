@@ -60,6 +60,20 @@ jobs:
       - run: ruff check .
       - run: pytest -q
 
+  eval:
+    name: accuracy eval (§11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e "./apps/ml[dev]"
+      # Gates on precision and the clean-sentence false-positive rate. A change
+      # that makes Tier 1 chattier fails the build: showing a writer a confident
+      # wrong "correction" of their good Tamil costs more trust than a miss.
+      - run: python eval/run.py
+
   env-manifest:
     name: env manifest (§3)
     runs-on: ubuntu-latest

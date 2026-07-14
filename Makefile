@@ -77,8 +77,8 @@ set-env-apply: ## Actually push all env vars to Cloud Run (ENV=, REGION=)
 # ---------------------------------------------------------------- eval (§11)
 
 .PHONY: eval
-eval: ## Run the accuracy harness over the labeled Tamil test set
-	@echo "eval harness lands in Phase 1 (§11)"
+eval: ## Run the accuracy harness over the labeled Tamil test set (§11)
+	$(ML_PY) eval/run.py
 
 .PHONY: clean
 clean:

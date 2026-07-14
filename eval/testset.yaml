@@ -1,0 +1,163 @@
+# Labeled Tamil evaluation set (plan §11).
+#
+# SIZE WARNING: this is ~45 cases. The plan calls for >=1,000. This set is large
+# enough to catch regressions in CI and to make the scorecard meaningful, and far
+# too small to certify "99% precision" on real writing. Growing it is the main
+# ongoing task of Phase 7 — the human-review queue of disagreements is the
+# intended source of new cases.
+#
+# Each case:
+#   text      the input sentence
+#   expect    list of gold corrections; an EMPTY list means "this sentence is
+#             correct — any suggestion is a false positive"
+#   note      why this case exists (especially for the silence cases)
+#
+# The `clean` and `must_stay_silent` cases matter more than the error cases.
+# Tier 1's contract is that it stays quiet unless certain, and a regression that
+# makes it chatty destroys writer trust faster than one that makes it miss.
+
+cases:
+  # ---------------------------------------------------------------- clean
+  - text: "நான் பள்ளிக்கு சென்றேன்."
+    expect: []
+    note: clean
+
+  - text: "அவன் நேற்று வந்தான்."
+    expect: []
+    note: clean
+
+  - text: "இது ஒரு நல்ல புத்தகம்."
+    expect: []
+    note: clean
+
+  - text: "நாங்கள் நகரத்திற்கு போனேன்."
+    expect: []
+    note: >
+      Agreement error (நாங்கள் + போனேன்) that Tier 1 CANNOT see — it has no
+      morphology yet. Listed as expect:[] because Tier 1 must stay silent rather
+      than guess; the model tiers own this. If Tier 1 ever fires here it is a
+      false positive, not a win.
+
+  - text: "தமிழ் ஒரு அழகான மொழி."
+    expect: []
+    note: clean
+
+  - text: "மழை பெய்தது."
+    expect: []
+    note: >
+      பெய்தது is not in the seed lexicon. Tier 1 must stay silent: out-of-
+      vocabulary with no confusable near-miss is a rare word, not a typo.
+
+  - text: "காலை உணவு சாப்பிட்டேன்."
+    expect: []
+    note: OOV verb form; must stay silent.
+
+  # -------------------------------------------------- must stay silent: real words
+  - text: "அது ஒரு புலி."
+    expect: []
+    note: >
+      புலி (tiger) is a real word. If the writer meant புளி (tamarind) that is a
+      real-word error requiring semantics. Tier 1 must NOT "correct" it.
+
+  - text: "அது ஒரு புளி."
+    expect: []
+    note: புளி (tamarind) is equally real. Symmetric guard.
+
+  - text: "எனக்கு வலி இருக்கிறது."
+    expect: []
+    note: வலி (pain) real; வளி/வழி also real. Must not be touched.
+
+  - text: "இது சரியான வழி."
+    expect: []
+    note: வழி (way) real.
+
+  - text: "பள்ளி திறந்தது."
+    expect: []
+    note: >
+      பள்ளி (school) and பல்லி (lizard) are both real. Classic confusable pair
+      that must never be auto-"corrected".
+
+  - text: "சுவரில் ஒரு பல்லி."
+    expect: []
+    note: பல்லி (lizard) real. Symmetric guard.
+
+  - text: "ஜெயக்குமார் வந்தார்."
+    expect: []
+    note: >
+      A proper name. Out-of-vocabulary with no near miss — Tier 1 must stay
+      silent. Flagging names is the most common way spellcheckers lose trust.
+
+  - text: "நான் Python கற்றேன்."
+    expect: []
+    note: Mixed-script. The Latin token must not be analyzed as Tamil.
+
+  - text: ""
+    expect: []
+    note: Empty input must not crash.
+
+  - text: "   "
+    expect: []
+    note: Whitespace-only input must not crash.
+
+  # ------------------------------------------------------- spelling (ர / ற)
+  - text: "அது ஒரு பரவை."
+    expect:
+      - original: "பரவை"
+        suggestion: "பறவை"
+        type: spelling
+    note: Non-word; one ர->ற swap reaches பறவை (bird). Unambiguous.
+
+  # ------------------------------------------------------- sandhi (வல்லினம்)
+  - text: "அந்த பையன் வந்தான்."
+    expect:
+      - original: "அந்த"
+        suggestion: "அந்தப்"
+        type: sandhi
+    note: வல்லினம் மிகுதல் after a demonstrative, before ப.
+
+  - text: "இந்த கதை நல்லது."
+    expect:
+      - original: "இந்த"
+        suggestion: "இந்தக்"
+        type: sandhi
+    note: Doubling must match the FOLLOWING consonant (க), not a fixed letter.
+
+  - text: "எந்த புத்தகம் வேண்டும்?"
+    expect:
+      - original: "எந்த"
+        suggestion: "எந்தப்"
+        type: sandhi
+    note: எந்த also triggers doubling.
+
+  - text: "அந்தப் பையன் வந்தான்."
+    expect: []
+    note: Already correct — must not be doubled a second time.
+
+  - text: "அந்த மழை நின்றது."
+    expect: []
+    note: >
+      மழை begins with ம (மெல்லினம்), so no doubling applies. Firing here would be
+      a false positive.
+
+  - text: "இந்த வீடு பெரியது."
+    expect: []
+    note: வ is not a வல்லினம். No doubling.
+
+  # ------------------------------------------------------------- multi-error
+  - text: "அந்த பையன் ஒரு பரவை பார்த்தான்."
+    expect:
+      - original: "அந்த"
+        suggestion: "அந்தப்"
+        type: sandhi
+      - original: "பரவை"
+        suggestion: "பறவை"
+        type: spelling
+    note: Both rule families in one sentence; offsets must stay correct.
+
+  # ------------------------------------------------------------ multi-sentence
+  - text: "நான் வந்தேன். அது ஒரு பரவை."
+    expect:
+      - original: "பரவை"
+        suggestion: "பறவை"
+        type: spelling
+    note: Offsets must map onto the DOCUMENT, not the sentence.
