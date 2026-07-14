@@ -16,6 +16,8 @@ from typing import Literal
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
+from .tamil.engine import TamilEngine
+
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info").upper()
 logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO))
 log = logging.getLogger("prooftamil.ml")
@@ -30,6 +32,12 @@ app = FastAPI(
 )
 
 _STARTED = time.monotonic()
+
+# Built once at import. The lexicon and rule set are read-only after load, so a
+# single shared engine is safe across the worker's threads — and rebuilding it
+# per request would put a file read on the hot path of every keystroke.
+_engine = TamilEngine()
+
 
 SuggestionType = Literal["spelling", "sandhi", "grammar", "agreement", "style"]
 
@@ -76,20 +84,46 @@ def health() -> dict:
 
 @app.get("/ready")
 def ready() -> dict:
-    """Readiness. Phase 1 extends this to assert the morph/parser data files in
-    THAMIZHI_DATA_PATH are loaded before the instance accepts traffic."""
-    return {"status": "ready", "models_loaded": []}
+    """Readiness. The instance is only useful once the lexicon is loaded — an
+    empty lexicon silently disables Tier 1 spelling checks, so report it rather
+    than serving traffic that quietly does nothing."""
+    lexicon_size = len(_engine.lexicon)
+    return {
+        "status": "ready" if lexicon_size else "degraded",
+        "lexicon_words": lexicon_size,
+        "sandhi_rules": len(_engine.rules.get("rules", [])),
+    }
 
 
 @app.post("/analyze", response_model=AnalyzeResponse)
 def analyze(req: AnalyzeRequest) -> AnalyzeResponse:
-    """Tier 1 deterministic analysis.
+    """Cascade Tier 1 — deterministic analysis of the target sentence.
 
-    Phase 0 returns no suggestions and `resolved=False`, which makes the Go
-    orchestrator treat every sentence as a cascade miss and fall through to the
-    cache and model tiers. That is the correct conservative default: an empty
-    Tier 1 never produces a false positive, it just does not save any cost yet.
+    `resolved` is always False. Tier 1 can prove a word is misspelled, but it can
+    never prove a sentence is CLEAN: it sees no semantics, so it cannot rule out
+    grammar, agreement or real-word errors. Claiming resolution here would skip
+    the model tiers and silently drop real errors, so the orchestrator always
+    falls through. Tier 1's payoff is latency — corrections in single-digit
+    milliseconds, long before a model responds — not skipped model calls.
     """
     start = time.perf_counter()
+    found = _engine.analyze(req.target)
     took_ms = int((time.perf_counter() - start) * 1000)
-    return AnalyzeResponse(suggestions=[], resolved=False, took_ms=took_ms)
+
+    return AnalyzeResponse(
+        suggestions=[
+            Suggestion(
+                start=s.start,
+                end=s.end,
+                original=s.original,
+                suggestion=s.suggestion,
+                type=s.type,
+                explanation=s.explanation,
+                confidence=s.confidence,
+                source_tier=s.source_tier,
+            )
+            for s in found
+        ],
+        resolved=False,
+        took_ms=took_ms,
+    )

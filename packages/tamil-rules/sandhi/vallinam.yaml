@@ -1,0 +1,36 @@
+# வல்லினம் மிகுதல் — hard-consonant doubling (புணர்ச்சி), cascade Tier 1.
+#
+# Tamil sandhi is a large topic. This file encodes only the subset that is
+# UNAMBIGUOUS enough to correct deterministically. Anything context-dependent is
+# left to the model tiers on purpose: a wrong sandhi "correction" reads as
+# illiterate to a Tamil writer and destroys trust faster than a missed error.
+#
+# The rule below: after a சுட்டு demonstrative (அந்த / இந்த / எந்த), a following
+# word beginning with a வல்லினம் (க ச த ப) takes doubling, realised as the
+# corresponding mey consonant attaching to the demonstrative.
+#
+#     அந்த + பையன்  ->  அந்தப் பையன்
+#     இந்த + கதை    ->  இந்தக் கதை
+#
+# To extend: add a trigger word, or a new rule block. Every addition must come
+# with a golden test in eval/ (plan §11) before it ships.
+
+version: 1
+
+rules:
+  - id: vallinam-after-demonstrative
+    type: sandhi
+    confidence: 0.92
+    explanation_ta: "சுட்டுச் சொல்லுக்குப் பின் வல்லினம் மிகும்."
+    explanation_en: "A hard consonant doubles after a demonstrative."
+    # The word that triggers doubling, in its bare (un-doubled) form.
+    triggers:
+      - அந்த
+      - இந்த
+      - எந்த
+    # next-word initial letter -> the mey consonant appended to the trigger
+    doubling:
+      "க": "க்"
+      "ச": "ச்"
+      "த": "த்"
+      "ப": "ப்"
