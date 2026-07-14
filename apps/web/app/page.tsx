@@ -1,4 +1,5 @@
 import Demo from "@/components/Demo";
+import Nav from "@/components/Nav";
 
 /**
  * The landing page (§17.2 screen 1).
@@ -10,7 +11,9 @@ import Demo from "@/components/Demo";
  */
 export default function Home() {
   return (
-    <main className="pt-landing">
+    <>
+      <Nav />
+      <main className="pt-landing">
       <header className="pt-hero">
         <h1>ProofTamil</h1>
         <p className="pt-tag-ta">தமிழ் எழுத்துச் சரிபார்ப்பு</p>
@@ -47,10 +50,11 @@ export default function Home() {
       </section>
 
       <footer className="pt-foot">
-        <a href="/write">Editor</a>
+        <a href="/pricing">Pricing</a>
         <a href="/blog">Blog</a>
         <span>Nothing you paste here is stored.</span>
       </footer>
-    </main>
+      </main>
+    </>
   );
 }

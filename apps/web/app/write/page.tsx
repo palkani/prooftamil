@@ -1,8 +1,11 @@
 import Editor from "@/components/Editor";
+import Nav from "@/components/Nav";
 
 export default function Write() {
   return (
-    <main>
+    <>
+      <Nav />
+      <main>
       <header className="pt-header">
         <h1>
           <a href="/">ProofTamil</a>
@@ -10,6 +13,7 @@ export default function Write() {
         <p>Type romanized Tamil, write in Tamil script, and have it proofread as you go.</p>
       </header>
       <Editor />
-    </main>
+      </main>
+    </>
   );
 }

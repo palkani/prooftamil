@@ -18,6 +18,7 @@ import { exportDocx, exportPdf, exportTxt, importFile } from "@/lib/documents";
 import { remember, rerank } from "@/lib/ime-history";
 import Writer from "./Writer";
 import Scan from "./Scan";
+import ExportModal from "./ExportModal";
 import { startVoice, voiceSupported, type VoiceHandle } from "@/lib/voice";
 import {
   buildPositionMap,
@@ -97,6 +98,7 @@ export default function Editor() {
   const [checking, setChecking] = useState(false);
   const [writerOpen, setWriterOpen] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [listening, setListening] = useState(false);
   const [interim, setInterim] = useState("");
   const [filter, setFilter] = useState<string>("all");
@@ -588,9 +590,7 @@ export default function Editor() {
 
           <span className="pt-sep" />
 
-          <button onClick={() => onExport("txt")}>.txt</button>
-          <button onClick={() => onExport("docx")}>.docx</button>
-          <button onClick={() => onExport("pdf")}>.pdf</button>
+          <button onClick={() => setExportOpen(true)}>⬇ Export</button>
 
           <span className="pt-saved">
             {notice || (saved && `saved ${saved}`)}
@@ -665,6 +665,9 @@ export default function Editor() {
       </div>
 
       {scanOpen && <Scan onText={onScanned} onClose={() => setScanOpen(false)} />}
+      {exportOpen && editor && (
+        <ExportModal text={editor.getText()} onClose={() => setExportOpen(false)} />
+      )}
 
       <aside className="pt-side">
       {/*
