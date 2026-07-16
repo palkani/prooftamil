@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
-import { type Draft, listDrafts, removeDraft } from "@/lib/drafts";
+import { type Draft, formatDate, listDrafts, removeDraft } from "@/lib/drafts";
 
 /**
  * The drafts screen (§17.2 screen 5).
@@ -78,7 +78,7 @@ export default function DraftsList() {
             <div className="pt-draft-meta">
               <span>{words(d)} words</span>
               <span>·</span>
-              <time>{new Date(d.updatedAt).toLocaleDateString()}</time>
+              <time>{formatDate(d.updatedAt)}</time>
 
               {confirming === d.id ? (
                 <span className="pt-confirm">

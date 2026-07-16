@@ -199,8 +199,11 @@ export default function Editor() {
         if (!draftIdRef.current) setDraftId(id);
         saveDraft(id, text);
         setDrafts(listDrafts());
+        // Fixed HH:MM, not toLocaleTimeString — locale-independent, so no hydration or
+        // display surprise for a user whose browser is not en-US.
+        const now = new Date();
         setSaved(
-          new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`,
         );
       }, AUTOSAVE_DEBOUNCE_MS);
 

@@ -37,8 +37,17 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ta" className={`${tamil.variable} ${ui.variable}`}>
-      <body>{children}</body>
+    // suppressHydrationWarning on <body> only.
+    //
+    // Browser extensions — Grammarly, Dark Reader, password managers — inject attributes
+    // and nodes into <body> BEFORE React hydrates. React then sees the server HTML and the
+    // (extension-mutated) DOM disagree and throws the generic "hydration failed" error,
+    // even though our markup is correct. This is Next.js's own sanctioned fix for it.
+    //
+    // It suppresses the warning for the <body> element ONLY, not its children — so a real
+    // mismatch inside a component still surfaces. It hides extension noise, not our bugs.
+    <html lang="ta" className={`${tamil.variable} ${ui.variable}`} suppressHydrationWarning>
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }

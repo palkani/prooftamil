@@ -87,3 +87,22 @@ export function newId(): string {
     ? crypto.randomUUID()
     : `d${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
 }
+
+/**
+ * A LOCALE-INDEPENDENT date string.
+ *
+ * toLocaleDateString() renders differently depending on the browser's locale — "7/15/2026"
+ * in en-US, "15/7/2026" in en-IN, and something else again in ta-IN. For a Tamil-audience
+ * product that variance is not hypothetical: many users run en-IN or ta-IN. If such a date
+ * is ever rendered on the server (future server-synced drafts) and then re-rendered on the
+ * client, the two disagree and React throws a hydration error.
+ *
+ * A fixed "15 Jul 2026" format renders identically everywhere, which removes the whole
+ * class of risk pre-emptively.
+ */
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+export function formatDate(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
