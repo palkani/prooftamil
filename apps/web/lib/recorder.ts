@@ -44,11 +44,39 @@ export async function startRecording(handlers: {
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (e) {
-    handlers.onError?.(
-      (e as Error).name === "NotAllowedError"
-        ? "Microphone permission was denied."
-        : "Could not open the microphone.",
-    );
+    // Map the DOMException to something the user can ACT on. The old code collapsed
+    // everything except NotAllowedError into "Could not open the microphone", which told
+    // the user nothing about how to fix it — and the failures need completely different
+    // fixes (grant permission vs plug in a mic vs quit the app holding it vs use HTTPS).
+    const err = e as DOMException;
+    let msg: string;
+    switch (err.name) {
+      case "NotAllowedError":
+      case "SecurityError":
+        // Browser permission OR the OS-level mic permission for the browser. On macOS,
+        // System Settings › Privacy & Security › Microphone must have the browser ticked,
+        // even after the site prompt is accepted.
+        msg =
+          "Microphone blocked. Allow mic access for this site, and check that your browser " +
+          "has microphone permission in your system settings.";
+        break;
+      case "NotFoundError":
+      case "DevicesNotFoundError" as string:
+        msg = "No microphone was found. Plug one in and try again.";
+        break;
+      case "NotReadableError":
+      case "TrackStartError" as string:
+        // Another app (Zoom, Teams, a recorder) holds the device, or the OS refused it.
+        msg = "The microphone is in use by another app. Close it and try again.";
+        break;
+      default:
+        // Surface the real name so a report is actionable instead of a shrug.
+        msg = `Could not open the microphone (${err.name || "unknown error"}).`;
+    }
+    // Also log the full error for diagnosis — the message above is for the user, this is
+    // for whoever debugs it.
+    console.warn("getUserMedia failed:", err.name, err.message);
+    handlers.onError?.(msg);
     return null;
   }
 
