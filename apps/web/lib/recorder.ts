@@ -135,29 +135,52 @@ export async function startRecording(handlers: {
     stream.getTracks().forEach((t) => t.stop());
     if (cancelled) return;
 
-    const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
+    const type = rec.mimeType || mime || "audio/webm";
+    const blob = new Blob(chunks, { type });
+
+    // One log line that turns "no text appeared" from a mystery into a diagnosis. It says
+    // whether the mic captured ANYTHING (size) and in WHAT format — the two things that
+    // decide the rest.
+    console.info(`[voice] recorded ${blob.size} bytes as ${type}`);
+
     if (blob.size < 1200) {
-      // Practically silence — a tap rather than speech. Say nothing rather than sending an
-      // empty clip and getting an empty transcript back.
-      handlers.onError?.("That was too short — hold the mic and speak.");
+      // Practically silence. Either the recording was a tap, or the OS/selected input
+      // captured nothing (muted, or the wrong device is the default). Tell the user which
+      // is more likely rather than blaming them for speaking too briefly.
+      handlers.onError?.(
+        "The recording was empty. Check the mic is not muted and the right input is selected " +
+          "in your system sound settings.",
+      );
       return;
     }
 
     handlers.onStateChange?.("transcribing");
     try {
+      // Name the file to MATCH the recorded format. Safari records audio/mp4; sending that
+      // as "voice.webm" invites the server or Saarika to mis-detect the container by
+      // extension and reject it. Extension follows the real mime type.
+      const ext = type.includes("mp4") ? "mp4" : type.includes("ogg") ? "ogg" : "webm";
       const fd = new FormData();
-      fd.append("audio", blob, "voice.webm");
+      fd.append("audio", blob, `voice.${ext}`);
+
       const res = await fetch(`${API_BASE}/api/v1/transcribe`, { method: "POST", body: fd });
-      const d = await res.json();
+      const d = await res.json().catch(() => ({}));
+      console.info(`[voice] transcribe -> HTTP ${res.status}`, d);
+
       if (!res.ok) throw new Error(d.error ?? `HTTP ${res.status}`);
       if (d.text?.trim()) handlers.onText(d.text.trim());
-      else handlers.onError?.("Nothing was recognised — try again.");
+      else handlers.onError?.("Nothing was recognised — try speaking a little longer.");
     } catch (e) {
+      console.warn("[voice] transcribe failed:", e);
       handlers.onError?.((e as Error).message);
     }
   };
 
-  rec.start();
+  // start(1000): emit a data chunk every second. Without a timeslice, some browsers only
+  // fire ondataavailable at stop — and a bug there (or a very short recording) can leave
+  // `chunks` empty and produce a zero-byte blob. A periodic chunk makes the capture
+  // observable and robust.
+  rec.start(1000);
   handlers.onStateChange?.("recording");
 
   return {
