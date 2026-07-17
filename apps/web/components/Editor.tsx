@@ -101,6 +101,7 @@ export default function Editor() {
   const [scanOpen, setScanOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [voiceState, setVoiceState] = useState<"idle" | "recording" | "transcribing">("idle");
+  const [micLevel, setMicLevel] = useState(0);
   const [filter, setFilter] = useState<string>("all");
   const recorder = useRef<Recorder | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
@@ -539,6 +540,7 @@ export default function Editor() {
     }
 
     const h = await startRecording({
+      onLevel: setMicLevel,
       onStateChange: (state) => {
         setVoiceState(state);
         setNotice(state === "recording" ? "listening… speak Tamil, then press stop" : "transcribing…");
@@ -648,6 +650,28 @@ export default function Editor() {
           </span>
           <span className="pt-status">{status}</span>
         </div>
+
+        {/* Voice recording banner with a LIVE level meter. The meter is the whole point:
+            if it moves, the mic is capturing and any failure is downstream; if it stays
+            flat, the user can SEE their mic is feeding silence, which no error text conveys
+            as fast as a dead needle. */}
+        {voiceState === "recording" && (
+          <div className="pt-rec-banner" role="status">
+            <span className="pt-rec-dot" aria-hidden="true" />
+            <span>Recording — speak Tamil, then press Stop</span>
+            <span className="pt-rec-meter" aria-hidden="true">
+              {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
+                <i key={i} className={micLevel * 10 > i ? "on" : ""} />
+              ))}
+            </span>
+          </div>
+        )}
+        {voiceState === "transcribing" && (
+          <div className="pt-rec-banner busy" role="status">
+            <span className="pt-spin" aria-hidden="true" />
+            <span>Transcribing your Tamil…</span>
+          </div>
+        )}
 
         <div className="pt-editor-wrap">
           <EditorContent editor={editor} />

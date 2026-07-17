@@ -835,3 +835,33 @@ h1, h2, h3 { color: var(--fg); }
 
 /* Voice: the transcribing state (mic released, waiting on Saarika). */
 .pt-filebar button:disabled { opacity: .6; }
+
+/* ------------------------------------------------------ voice recording banner */
+.pt-rec-banner {
+  display: flex; align-items: center; gap: .7rem;
+  margin-bottom: .7rem; padding: .7rem 1rem;
+  background: var(--brand-soft); border: 1px solid var(--brand);
+  border-radius: var(--r); font-size: .9rem; font-weight: 500; color: var(--fg);
+}
+.pt-rec-banner.busy { background: var(--bg-alt); border-color: var(--line); }
+.pt-rec-dot {
+  width: 11px; height: 11px; border-radius: 50%; background: var(--danger);
+  animation: pt-blink 1s ease-in-out infinite; flex-shrink: 0;
+}
+@keyframes pt-blink { 50% { opacity: .3; } }
+
+/* The live meter. Bars light up with input level — flat = silence, visibly. */
+.pt-rec-meter { display: flex; gap: 3px; margin-left: auto; align-items: flex-end; height: 24px; }
+.pt-rec-meter i {
+  width: 4px; height: 100%; border-radius: 2px;
+  background: var(--line-strong); transition: background .05s;
+}
+.pt-rec-meter i.on { background: var(--brand); }
+.pt-rec-meter i:nth-child(n+8).on { background: var(--danger); } /* loud = red, clipping cue */
+
+.pt-spin {
+  width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0;
+  border: 2px solid var(--line-strong); border-top-color: var(--brand);
+  animation: pt-spin .7s linear infinite;
+}
+@keyframes pt-spin { to { transform: rotate(360deg); } }

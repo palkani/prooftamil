@@ -102,6 +102,9 @@ export const recordingSupported = () =>
 export async function startRecording(handlers: {
   onText: (text: string) => void;
   onStateChange?: (state: "recording" | "transcribing") => void;
+  /** 0-1 live input level, ~20x/sec while recording. Drives the on-screen meter so the
+   *  user can SEE whether the mic is capturing — a flat meter is silence, visibly. */
+  onLevel?: (level: number) => void;
   onError?: (msg: string) => void;
 }): Promise<Recorder | null> {
   let stream: MediaStream;
@@ -113,6 +116,47 @@ export async function startRecording(handlers: {
     handlers.onError?.(await diagnose(err));
     return null;
   }
+
+  // --- live level meter ---------------------------------------------------
+  //
+  // The single most useful thing for "I speak but nothing happens": a meter the user can
+  // watch. If it moves, the mic works and the problem is elsewhere; if it stays flat, the
+  // OS is feeding silence (muted, or the wrong input is the default) — which no error
+  // message conveys as immediately as a dead needle.
+  let audioCtx: AudioContext | null = null;
+  let rafId = 0;
+  let peak = 0; // was ANY sound captured across the whole recording?
+  try {
+    audioCtx = new AudioContext();
+    const src = audioCtx.createMediaStreamSource(stream);
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 512;
+    src.connect(analyser);
+    const buf = new Uint8Array(analyser.frequencyBinCount);
+
+    const tick = () => {
+      analyser.getByteTimeDomainData(buf);
+      // RMS deviation from the 128 midpoint → a 0-1 loudness.
+      let sum = 0;
+      for (const v of buf) {
+        const d = (v - 128) / 128;
+        sum += d * d;
+      }
+      const level = Math.min(1, Math.sqrt(sum / buf.length) * 4);
+      peak = Math.max(peak, level);
+      handlers.onLevel?.(level);
+      rafId = requestAnimationFrame(tick);
+    };
+    tick();
+  } catch {
+    /* the meter is a nicety; recording works without it */
+  }
+
+  const stopMeter = () => {
+    cancelAnimationFrame(rafId);
+    audioCtx?.close().catch(() => {});
+    handlers.onLevel?.(0);
+  };
 
   // Opus in a WebM/OGG container is what browsers produce and Saarika accepts. Pick
   // whichever the browser actually supports rather than assuming.
@@ -130,6 +174,7 @@ export async function startRecording(handlers: {
   };
 
   rec.onstop = async () => {
+    stopMeter();
     // Always release the mic, or the browser leaves the recording indicator on and holds
     // the device — which users read as the app spying on them.
     stream.getTracks().forEach((t) => t.stop());
@@ -138,19 +183,25 @@ export async function startRecording(handlers: {
     const type = rec.mimeType || mime || "audio/webm";
     const blob = new Blob(chunks, { type });
 
-    // One log line that turns "no text appeared" from a mystery into a diagnosis. It says
-    // whether the mic captured ANYTHING (size) and in WHAT format — the two things that
-    // decide the rest.
-    console.info(`[voice] recorded ${blob.size} bytes as ${type}`);
+    // One log line that turns "no text appeared" from a mystery into a diagnosis: whether
+    // the mic captured anything (size + peak level) and in what format.
+    console.info(`[voice] recorded ${blob.size} bytes as ${type}, peak level ${peak.toFixed(3)}`);
+
+    // The meter never moved: the OS handed us silence. This is the diagnosis for "mic is
+    // on but nothing happens" — the device is selected and permitted, but muted or the
+    // wrong input. A byte-size check alone would miss it, because an all-silence WebM is
+    // still several KB of container.
+    if (peak < 0.02) {
+      handlers.onError?.(
+        "No sound was captured — the level meter stayed flat. Your mic is muted, or the " +
+          "wrong input is selected. Check System Settings → Sound → Input and speak while " +
+          "the input level there moves.",
+      );
+      return;
+    }
 
     if (blob.size < 1200) {
-      // Practically silence. Either the recording was a tap, or the OS/selected input
-      // captured nothing (muted, or the wrong device is the default). Tell the user which
-      // is more likely rather than blaming them for speaking too briefly.
-      handlers.onError?.(
-        "The recording was empty. Check the mic is not muted and the right input is selected " +
-          "in your system sound settings.",
-      );
+      handlers.onError?.("The recording was too short — hold the mic button and speak.");
       return;
     }
 
@@ -174,6 +225,12 @@ export async function startRecording(handlers: {
       console.warn("[voice] transcribe failed:", e);
       handlers.onError?.((e as Error).message);
     }
+  };
+
+  rec.onerror = () => {
+    stopMeter();
+    stream.getTracks().forEach((t) => t.stop());
+    handlers.onError?.("Recording failed. Try again.");
   };
 
   // start(1000): emit a data chunk every second. Without a timeslice, some browsers only
