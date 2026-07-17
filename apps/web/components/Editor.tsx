@@ -21,6 +21,7 @@ import Writer from "./Writer";
 import Scan from "./Scan";
 import ExportModal from "./ExportModal";
 import { recordingSupported, startRecording, type Recorder } from "@/lib/recorder";
+import { liveVoiceSupported, startLiveVoice, type LiveVoiceHandle } from "@/lib/live-voice";
 import {
   buildPositionMap,
   removeSuggestion,
@@ -104,6 +105,7 @@ export default function Editor() {
   const [micLevel, setMicLevel] = useState(0);
   const [filter, setFilter] = useState<string>("all");
   const recorder = useRef<Recorder | null>(null);
+  const live = useRef<LiveVoiceHandle | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [draftId, setDraftId] = useState<string>("");
   const [saved, setSaved] = useState("");
@@ -446,7 +448,7 @@ export default function Editor() {
     if (w.requestIdleCallback) w.requestIdleCallback(() => preloadIMEIndex());
     else setTimeout(preloadIMEIndex, 1200);
     // Release the microphone if the component unmounts mid-recording.
-    return () => recorder.current?.stop();
+    return () => { recorder.current?.stop(); live.current?.stop(); };
   }, []);
 
   // Restore the most recent draft on load. A writer who closes the tab and comes back
@@ -532,13 +534,104 @@ export default function Editor() {
   const toggleVoice = async () => {
     if (!editor) return;
 
+    // Already dictating (either mode)? Stop.
+    if (live.current) {
+      live.current.stop();
+      live.current = null;
+      return;
+    }
     if (recorder.current) {
-      // Second press: stop recording. Transcription then runs and inserts on its own.
       recorder.current.stop();
       recorder.current = null;
       return;
     }
 
+    // LIVE dictation first — words appear as you speak (Web Speech, Chrome/Safari). If the
+    // browser has no live recogniser, fall back to the accurate Saarika recorder.
+    if (liveVoiceSupported()) {
+      startLive();
+    } else {
+      await startBatch();
+    }
+  };
+
+  /**
+   * Live dictation. The recogniser streams two kinds of text and they MUST be handled
+   * differently, or dictation duplicates half of every sentence:
+   *   - final segments are committed to the document, permanently;
+   *   - the current interim is a rolling preview that gets REPLACED on every update.
+   *
+   * We track the document range this dictation session owns (anchor + rendered length) and
+   * rewrite it in place each time, so interim words appear live and lock in when final.
+   */
+  const startLive = () => {
+    if (!editor) return;
+    editor.chain().focus().run();
+
+    const anchor = editor.state.selection.from;
+    let committed = "";
+    let interim = "";
+    let renderedLen = 0; // PM length (UTF-16 units) of what we've written since `anchor`
+
+    const render = () => {
+      const shown = committed + (interim ? (committed ? " " : "") + interim : "");
+      editor
+        .chain()
+        .insertContentAt({ from: anchor, to: anchor + renderedLen }, shown || " ")
+        .run();
+      renderedLen = (shown || " ").length;
+      // Keep the caret at the end so the user can carry on.
+      const end = anchor + renderedLen;
+      editor.commands.setTextSelection(end);
+    };
+
+    setVoiceState("recording");
+    setNotice("listening… speak Tamil");
+
+    const h = startLiveVoice({
+      onFinal: (seg) => {
+        if (!seg) return;
+        committed = committed ? committed + " " + seg : seg;
+        interim = "";
+        render();
+      },
+      onInterim: (txt) => {
+        interim = txt;
+        render();
+      },
+      onError: (m) => {
+        // If live is unsupported for Tamil, fall back to the recorder rather than leaving
+        // the user with nothing.
+        live.current = null;
+        setVoiceState("idle");
+        setNotice(m);
+      },
+      onEnd: () => {
+        // Trim the trailing placeholder space if the session produced nothing.
+        if (renderedLen === 1 && !committed) {
+          editor.chain().insertContentAt({ from: anchor, to: anchor + 1 }, "").run();
+        } else if (committed) {
+          editor.chain().focus().insertContent(" ").run();
+        }
+        live.current = null;
+        setVoiceState("idle");
+        setNotice("");
+      },
+    });
+
+    if (!h) {
+      setVoiceState("idle");
+      return;
+    }
+    live.current = h;
+  };
+
+  /**
+   * Batch dictation — the accurate fallback. Record, then transcribe with Saarika. Used
+   * when the browser has no live recogniser (Firefox), so those users still get voice.
+   */
+  const startBatch = async () => {
+    if (!editor) return;
     const h = await startRecording({
       onLevel: setMicLevel,
       onStateChange: (state) => {
@@ -556,10 +649,9 @@ export default function Editor() {
         setNotice(m);
       },
     });
-
     if (!h) {
       setVoiceState("idle");
-      return; // startRecording already reported why via onError
+      return;
     }
     recorder.current = h;
   };
@@ -658,12 +750,20 @@ export default function Editor() {
         {voiceState === "recording" && (
           <div className="pt-rec-banner" role="status">
             <span className="pt-rec-dot" aria-hidden="true" />
-            <span>Recording — speak Tamil, then press Stop</span>
-            <span className="pt-rec-meter" aria-hidden="true">
-              {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
-                <i key={i} className={micLevel * 10 > i ? "on" : ""} />
-              ))}
+            <span>
+              {live.current
+                ? "Listening — your Tamil appears as you speak. Press Stop when done."
+                : "Recording — speak Tamil, then press Stop"}
             </span>
+            {/* The level meter is only meaningful for the batch recorder, which builds the
+                audio graph. Live dictation has no such graph, so hide it there. */}
+            {!live.current && (
+              <span className="pt-rec-meter" aria-hidden="true">
+                {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
+                  <i key={i} className={micLevel * 10 > i ? "on" : ""} />
+                ))}
+              </span>
+            )}
           </div>
         )}
         {voiceState === "transcribing" && (
