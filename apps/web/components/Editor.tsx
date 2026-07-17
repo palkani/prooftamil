@@ -558,6 +558,17 @@ export default function Editor() {
    */
   const startBatch = async () => {
     if (!editor) return;
+
+    // CAPTURE THE INSERTION POINT NOW, before recording.
+    //
+    // The bug this fixes: transcription completes seconds later, and inserting then with
+    // editor.chain().focus() restores whatever selection existed before the Speak BUTTON
+    // was clicked. If any text was selected — or the whole document — insertContent
+    // REPLACES it, so the dictation overwrites or scrambles the user's existing content
+    // instead of adding to it. Pinning the position up front, while the doc is stable
+    // (the user is about to speak, not type), makes the insert deterministic.
+    const insertAt = editor.state.selection.to;
+
     const h = await startRecording({
       onLevel: setMicLevel,
       onStateChange: (state) => {
@@ -565,7 +576,16 @@ export default function Editor() {
         setNotice(state === "recording" ? "listening… speak Tamil, then press stop" : "transcribing…");
       },
       onText: (text) => {
-        editor.chain().focus().insertContent(text + " ").run();
+        // Insert at the captured position — NOT at the current selection. Clamp to the
+        // document size in case it somehow shrank, then leave the caret after the inserted
+        // text so the user can carry on.
+        const pos = Math.min(insertAt, editor.state.doc.content.size);
+        editor
+          .chain()
+          .insertContentAt(pos, text + " ")
+          .setTextSelection(pos + Array.from(text + " ").length)
+          .focus()
+          .run();
         setVoiceState("idle");
         setNotice("");
       },
