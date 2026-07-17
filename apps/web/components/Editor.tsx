@@ -21,7 +21,6 @@ import Writer from "./Writer";
 import Scan from "./Scan";
 import ExportModal from "./ExportModal";
 import { recordingSupported, startRecording, type Recorder } from "@/lib/recorder";
-import { liveVoiceSupported, startLiveVoice, type LiveVoiceHandle } from "@/lib/live-voice";
 import {
   buildPositionMap,
   removeSuggestion,
@@ -105,10 +104,6 @@ export default function Editor() {
   const [micLevel, setMicLevel] = useState(0);
   const [filter, setFilter] = useState<string>("all");
   const recorder = useRef<Recorder | null>(null);
-  const live = useRef<LiveVoiceHandle | null>(null);
-  // Once Web Speech proves it returns no Tamil here, stop trying it — otherwise every
-  // Speak press would re-arm live and time out again. Sticky for the session.
-  const liveUnavailable = useRef(false);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [draftId, setDraftId] = useState<string>("");
   const [saved, setSaved] = useState("");
@@ -451,7 +446,7 @@ export default function Editor() {
     if (w.requestIdleCallback) w.requestIdleCallback(() => preloadIMEIndex());
     else setTimeout(preloadIMEIndex, 1200);
     // Release the microphone if the component unmounts mid-recording.
-    return () => { recorder.current?.stop(); live.current?.stop(); };
+    return () => recorder.current?.stop();
   }, []);
 
   // Restore the most recent draft on load. A writer who closes the tab and comes back
@@ -537,109 +532,24 @@ export default function Editor() {
   const toggleVoice = async () => {
     if (!editor) return;
 
-    // Already dictating (either mode)? Stop.
-    if (live.current) {
-      live.current.stop();
-      live.current = null;
-      return;
-    }
+    // Already recording? Stop — transcription then runs and inserts.
     if (recorder.current) {
       recorder.current.stop();
       recorder.current = null;
       return;
     }
 
-    // LIVE dictation first — words appear as you speak (Web Speech, Chrome/Safari). If the
-    // browser has no live recogniser, OR live already proved it returns no Tamil here, use
-    // the accurate Saarika recorder instead.
-    if (liveVoiceSupported() && !liveUnavailable.current) {
-      startLive();
-    } else {
-      await startBatch();
-    }
-  };
-
-  /**
-   * Live dictation. The recogniser streams two kinds of text and they MUST be handled
-   * differently, or dictation duplicates half of every sentence:
-   *   - final segments are committed to the document, permanently;
-   *   - the current interim is a rolling preview that gets REPLACED on every update.
-   *
-   * We track the document range this dictation session owns (anchor + rendered length) and
-   * rewrite it in place each time, so interim words appear live and lock in when final.
-   */
-  const startLive = () => {
-    if (!editor) return;
-    editor.chain().focus().run();
-
-    const anchor = editor.state.selection.from;
-    let committed = "";
-    let interim = "";
-    let renderedLen = 0; // PM length (UTF-16 units) of what we've written since `anchor`
-
-    const render = () => {
-      const shown = committed + (interim ? (committed ? " " : "") + interim : "");
-      editor
-        .chain()
-        .insertContentAt({ from: anchor, to: anchor + renderedLen }, shown || " ")
-        .run();
-      renderedLen = (shown || " ").length;
-      // Keep the caret at the end so the user can carry on.
-      const end = anchor + renderedLen;
-      editor.commands.setTextSelection(end);
-    };
-
-    setVoiceState("recording");
-    setNotice("listening… speak Tamil");
-
-    const h = startLiveVoice({
-      onFinal: (seg) => {
-        if (!seg) return;
-        committed = committed ? committed + " " + seg : seg;
-        interim = "";
-        render();
-      },
-      onInterim: (txt) => {
-        interim = txt;
-        render();
-      },
-      onError: (m) => {
-        // If live is unsupported for Tamil, fall back to the recorder rather than leaving
-        // the user with nothing.
-        live.current = null;
-        setVoiceState("idle");
-        setNotice(m);
-      },
-      onEnd: () => {
-        // Trim the trailing placeholder space if the session produced nothing.
-        if (renderedLen === 1 && !committed) {
-          editor.chain().insertContentAt({ from: anchor, to: anchor + 1 }, "").run();
-        } else if (committed) {
-          editor.chain().focus().insertContent(" ").run();
-        }
-        live.current = null;
-        setVoiceState("idle");
-        setNotice("");
-      },
-      onNoResults: () => {
-        // Web Speech heard nothing usable — its Tamil is not working on this machine.
-        // Remember that (so we do not loop back into live), clean up the empty session, and
-        // seamlessly START the accurate recorder so the user just keeps talking.
-        if (renderedLen === 1 && !committed) {
-          editor.chain().insertContentAt({ from: anchor, to: anchor + 1 }, "").run();
-        }
-        live.current = null;
-        liveUnavailable.current = true;
-        setNotice("Live Tamil is unavailable here — using the accurate recorder. Keep speaking, then press Stop.");
-        void startBatch();
-      },
-    });
-
-    if (!h) {
-      setVoiceState("idle");
-      return;
-    }
-    live.current = h;
+    // THE SAARIKA RECORDER IS THE DEFAULT, and it is what actually works.
+    //
+    // Web Speech "live" dictation was tried and it fails on real machines: Google's Tamil
+    // backend returns nothing, silently, so the user got "listening" and no text. Worse,
+    // pressing Stop during that dead period skipped the fallback entirely — voice appeared
+    // completely broken. Record-then-transcribe with Saarika is verified end to end and
+    // gives excellent Tamil, so it is the path everyone gets.
+    //
+    // (True live-as-you-speak needs Sarvam's streaming WebSocket — accurate AND live — which
+    // is the right next step, but a separate build. Not Web Speech, which does not work here.)
+    await startBatch();
   };
 
   /**
@@ -766,20 +676,12 @@ export default function Editor() {
         {voiceState === "recording" && (
           <div className="pt-rec-banner" role="status">
             <span className="pt-rec-dot" aria-hidden="true" />
-            <span>
-              {live.current
-                ? "Listening — your Tamil appears as you speak. Press Stop when done."
-                : "Recording — speak Tamil, then press Stop"}
+            <span>Recording — speak Tamil, then press Stop</span>
+            <span className="pt-rec-meter" aria-hidden="true">
+              {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
+                <i key={i} className={micLevel * 10 > i ? "on" : ""} />
+              ))}
             </span>
-            {/* The level meter is only meaningful for the batch recorder, which builds the
-                audio graph. Live dictation has no such graph, so hide it there. */}
-            {!live.current && (
-              <span className="pt-rec-meter" aria-hidden="true">
-                {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
-                  <i key={i} className={micLevel * 10 > i ? "on" : ""} />
-                ))}
-              </span>
-            )}
           </div>
         )}
         {voiceState === "transcribing" && (
