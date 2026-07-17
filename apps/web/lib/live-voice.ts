@@ -66,6 +66,9 @@ export function startLiveVoice(handlers: {
   onInterim: (text: string) => void;
   onError?: (msg: string) => void;
   onEnd?: () => void;
+  /** Fired when the recogniser produced nothing after a few seconds — Web Speech Tamil is
+   *  not working on this machine. The caller should hand off to the accurate recorder. */
+  onNoResults?: () => void;
 }): LiveVoiceHandle | null {
   const Ctor = ctor();
   if (!Ctor) return null;
@@ -77,6 +80,29 @@ export function startLiveVoice(handlers: {
   rec.maxAlternatives = 1;
 
   let stopped = false;
+  let gotAnyResult = false;
+
+  // WEB SPEECH TAMIL IS UNRELIABLE. On many Chrome builds it accepts ta-IN, shows
+  // "listening", captures audio — and returns NOTHING, silently, because Google's backend
+  // has poor or no Tamil for that platform. There is no error event for this; the session
+  // just produces no results.
+  //
+  // So we arm a watchdog: if the recogniser has produced nothing a few seconds after
+  // starting, we treat live dictation as unavailable HERE and hand off to the accurate
+  // Saarika recorder, rather than leaving the user talking into a void.
+  const NO_RESULT_MS = 6000;
+  const watchdog = setTimeout(() => {
+    if (!gotAnyResult && !stopped) {
+      console.warn("[voice] live dictation produced no results in", NO_RESULT_MS, "ms — Web Speech Tamil is not working here; falling back");
+      stopped = true;
+      try {
+        rec.abort();
+      } catch {
+        /* ignore */
+      }
+      handlers.onNoResults?.();
+    }
+  }, NO_RESULT_MS);
 
   rec.onresult = (e) => {
     let interim = "";
@@ -85,6 +111,11 @@ export function startLiveVoice(handlers: {
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const r = e.results[i];
       const text = r[0].transcript;
+      if (text.trim()) {
+        gotAnyResult = true;
+        clearTimeout(watchdog);
+      }
+      console.info("[voice] result:", JSON.stringify(text), r.isFinal ? "(final)" : "(interim)");
       if (r.isFinal) handlers.onFinal(text.trim());
       else interim += text;
     }
@@ -92,6 +123,7 @@ export function startLiveVoice(handlers: {
   };
 
   rec.onerror = (e) => {
+    clearTimeout(watchdog);
     // "no-speech" and "aborted" are normal — a pause, or the user pressing stop. Surfacing
     // them as errors would make dictation look broken every time someone breathes.
     if (e.error === "no-speech" || e.error === "aborted") return;
@@ -105,6 +137,7 @@ export function startLiveVoice(handlers: {
   };
 
   rec.onend = () => {
+    clearTimeout(watchdog);
     // Chrome ends the session on its own after a pause. Restart it, or "continuous"
     // dictation quietly dies mid-sentence and the user thinks the app hung.
     if (!stopped) {

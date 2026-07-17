@@ -106,6 +106,9 @@ export default function Editor() {
   const [filter, setFilter] = useState<string>("all");
   const recorder = useRef<Recorder | null>(null);
   const live = useRef<LiveVoiceHandle | null>(null);
+  // Once Web Speech proves it returns no Tamil here, stop trying it — otherwise every
+  // Speak press would re-arm live and time out again. Sticky for the session.
+  const liveUnavailable = useRef(false);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [draftId, setDraftId] = useState<string>("");
   const [saved, setSaved] = useState("");
@@ -547,8 +550,9 @@ export default function Editor() {
     }
 
     // LIVE dictation first — words appear as you speak (Web Speech, Chrome/Safari). If the
-    // browser has no live recogniser, fall back to the accurate Saarika recorder.
-    if (liveVoiceSupported()) {
+    // browser has no live recogniser, OR live already proved it returns no Tamil here, use
+    // the accurate Saarika recorder instead.
+    if (liveVoiceSupported() && !liveUnavailable.current) {
       startLive();
     } else {
       await startBatch();
@@ -616,6 +620,18 @@ export default function Editor() {
         live.current = null;
         setVoiceState("idle");
         setNotice("");
+      },
+      onNoResults: () => {
+        // Web Speech heard nothing usable — its Tamil is not working on this machine.
+        // Remember that (so we do not loop back into live), clean up the empty session, and
+        // seamlessly START the accurate recorder so the user just keeps talking.
+        if (renderedLen === 1 && !committed) {
+          editor.chain().insertContentAt({ from: anchor, to: anchor + 1 }, "").run();
+        }
+        live.current = null;
+        liveUnavailable.current = true;
+        setNotice("Live Tamil is unavailable here — using the accurate recorder. Keep speaking, then press Stop.");
+        void startBatch();
       },
     });
 
