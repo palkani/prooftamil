@@ -21,6 +21,7 @@ import (
 	"github.com/prooftamil/api/internal/handlers"
 	"github.com/prooftamil/api/internal/ocr"
 	"github.com/prooftamil/api/internal/router"
+	"github.com/prooftamil/api/internal/speech"
 	"github.com/prooftamil/api/internal/writer"
 )
 
@@ -122,6 +123,7 @@ func run() error {
 			buildWriter(cfg, clients, orch, log),
 			buildOCR(cfg, orch, log),
 			handlers.NewCorrections(pub),
+			buildTranscribe(cfg, log),
 		),
 		ReadHeaderTimeout: 10 * time.Second,
 		// No WriteTimeout: the SSE streaming routes (§7.2) are long-lived and a
@@ -251,6 +253,21 @@ func buildModelTier(cfg *config.Config, httpc *http.Client, log *slog.Logger) (c
 		"verify_below", cfg.ConfidenceGate, "tier1_only", cfg.Tier1Only)
 
 	return corrector.NewRouter(primary, fallback, cfg.ModelTimeout, log, opts...), nil
+}
+
+// buildTranscribe assembles voice typing (audio -> Tamil text) via Sarvam Saarika.
+//
+// Nil when no Sarvam key is set — the routes are simply not registered rather than
+// exposed as 500s. The client still has its Web Speech fallback where the browser
+// supports it.
+func buildTranscribe(cfg *config.Config, log *slog.Logger) *handlers.Transcribe {
+	if cfg.SarvamAPIKey == "" {
+		log.Warn("no Sarvam key; server voice typing is disabled (browser Web Speech still works)")
+		return nil
+	}
+	asr := speech.NewSarvam(cfg.SarvamAPIKey, cfg.SarvamBaseURL, cfg.SarvamASRModel, nil)
+	log.Info("voice typing enabled", "model", cfg.SarvamASRModel, "path", "server/saarika")
+	return handlers.NewTranscribe(asr, log)
 }
 
 // buildOCR assembles the server OCR path (§15.1).

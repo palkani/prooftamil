@@ -18,6 +18,7 @@ func New(
 	writer *handlers.Writer,
 	ocr *handlers.OCR,
 	corrections *handlers.Corrections,
+	transcribe *handlers.Transcribe,
 ) *gin.Engine {
 	if cfg.AppEnv != "dev" {
 		gin.SetMode(gin.ReleaseMode)
@@ -85,6 +86,12 @@ func New(
 		// §15.3 — OCR. The image is transient: never persisted, never logged.
 		if ocr != nil {
 			v1.POST("/ocr", ocr.Handle)
+		}
+
+		// Voice typing — audio in, Tamil text out. Same privacy contract as OCR: the
+		// recording is transient, never persisted, never logged.
+		if transcribe != nil {
+			v1.POST("/transcribe", transcribe.Handle)
 		}
 
 		// §16.3 — the AI Content Writer. Pro-gated, all modes streamed.

@@ -41,6 +41,7 @@ type Config struct {
 	SarvamBaseURL   string
 	SarvamModel     string
 	SarvamMaxTokens int
+	SarvamASRModel  string
 	GeminiAPIKey    string
 	GeminiBaseURL   string
 	GeminiModel     string
@@ -94,10 +95,13 @@ func Load() (*Config, error) {
 		SarvamBaseURL: env("SARVAM_BASE_URL", "https://api.sarvam.ai"),
 		// Model IDs are CONFIG, never constants: sarvam-m was deprecated out from
 		// under this code between writing it and the first live call.
-		SarvamModel:   env("SARVAM_MODEL", "sarvam-30b"),
-		GeminiAPIKey:  os.Getenv("GEMINI_API_KEY"),
-		GeminiBaseURL: env("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com"),
-		GeminiModel:   env("GEMINI_MODEL", "gemini-2.5-flash"),
+		SarvamModel: env("SARVAM_MODEL", "sarvam-30b"),
+		// Saarika ASR. Model IDs are config: saarika:v2 and saarika:flash were both
+		// deprecated out from under this code by the first live call.
+		SarvamASRModel: env("SARVAM_ASR_MODEL", "saarika:v2.5"),
+		GeminiAPIKey:   os.Getenv("GEMINI_API_KEY"),
+		GeminiBaseURL:  env("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com"),
+		GeminiModel:    env("GEMINI_MODEL", "gemini-2.5-flash"),
 
 		ModelRouterConfig: env("MODEL_ROUTER_CONFIG", "{}"),
 		// §8.6 — the fallback is failover, not a latency hedge. Sarvam is ~8x slower

@@ -20,7 +20,7 @@ import { preloadIMEIndex } from "@/lib/ime-local";
 import Writer from "./Writer";
 import Scan from "./Scan";
 import ExportModal from "./ExportModal";
-import { startVoice, voiceSupported, type VoiceHandle } from "@/lib/voice";
+import { recordingSupported, startRecording, type Recorder } from "@/lib/recorder";
 import {
   buildPositionMap,
   removeSuggestion,
@@ -100,10 +100,9 @@ export default function Editor() {
   const [writerOpen, setWriterOpen] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
-  const [listening, setListening] = useState(false);
-  const [interim, setInterim] = useState("");
+  const [voiceState, setVoiceState] = useState<"idle" | "recording" | "transcribing">("idle");
   const [filter, setFilter] = useState<string>("all");
-  const voice = useRef<VoiceHandle | null>(null);
+  const recorder = useRef<Recorder | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [draftId, setDraftId] = useState<string>("");
   const [saved, setSaved] = useState("");
@@ -445,6 +444,8 @@ export default function Editor() {
     const w = window as unknown as { requestIdleCallback?: (cb: () => void) => void };
     if (w.requestIdleCallback) w.requestIdleCallback(() => preloadIMEIndex());
     else setTimeout(preloadIMEIndex, 1200);
+    // Release the microphone if the component unmounts mid-recording.
+    return () => recorder.current?.stop();
   }, []);
 
   // Restore the most recent draft on load. A writer who closes the tab and comes back
@@ -515,41 +516,50 @@ export default function Editor() {
   };
 
   /**
-   * Voice typing. Only FINAL transcripts are inserted — interim results get rewritten
-   * as the recogniser hears more of the sentence, so inserting them is how dictation
-   * ends up duplicating half of everything you say.
+   * Voice typing — record, then transcribe with Sarvam's Tamil ASR.
+   *
+   * This replaced a Web Speech implementation. Web Speech is Chrome/Safari-only (no
+   * Firefox at all), ships audio to Google regardless, and recognises Tamil poorly
+   * because Tamil is a rounding error in a general-purpose recogniser. Recording and
+   * sending to Saarika works in every browser and is dramatically more accurate — Saarika
+   * is built for Indian languages. Verified end to end: it transcribed real Tamil audio
+   * exactly.
+   *
+   * The transcript arrives when you STOP, not word by word. For dictation that is the
+   * better shape anyway: no half-formed text flickering as the model changes its mind.
    */
-  const toggleVoice = () => {
+  const toggleVoice = async () => {
     if (!editor) return;
 
-    if (listening) {
-      voice.current?.stop();
-      voice.current = null;
-      setListening(false);
-      setInterim("");
+    if (recorder.current) {
+      // Second press: stop recording. Transcription then runs and inserts on its own.
+      recorder.current.stop();
+      recorder.current = null;
       return;
     }
 
-    const h = startVoice({
-      onFinal: (text) => {
-        setInterim("");
+    const h = await startRecording({
+      onStateChange: (state) => {
+        setVoiceState(state);
+        setNotice(state === "recording" ? "listening… speak Tamil, then press stop" : "transcribing…");
+      },
+      onText: (text) => {
         editor.chain().focus().insertContent(text + " ").run();
+        setVoiceState("idle");
+        setNotice("");
       },
-      onInterim: setInterim,
       onError: (m) => {
+        recorder.current = null;
+        setVoiceState("idle");
         setNotice(m);
-        setListening(false);
       },
-      onEnd: () => setListening(false),
     });
 
     if (!h) {
-      setNotice("Voice typing is not supported in this browser.");
-      return;
+      setVoiceState("idle");
+      return; // startRecording already reported why via onError
     }
-    voice.current = h;
-    setListening(true);
-    setNotice("listening… speak Tamil");
+    recorder.current = h;
   };
 
   const onExport = async (fmt: "txt" | "docx" | "pdf") => {
@@ -592,13 +602,18 @@ export default function Editor() {
 
           <button onClick={() => setScanOpen(true)}>📷 Scan</button>
 
-          {voiceSupported() && (
+          {recordingSupported() && (
             <button
-              className={listening ? "rec" : ""}
+              className={voiceState === "recording" ? "rec" : ""}
               onClick={toggleVoice}
-              aria-pressed={listening}
+              disabled={voiceState === "transcribing"}
+              aria-pressed={voiceState === "recording"}
             >
-              {listening ? "⏹ Stop" : "🎙 Speak"}
+              {voiceState === "recording"
+                ? "⏹ Stop"
+                : voiceState === "transcribing"
+                  ? "… transcribing"
+                  : "🎙 Speak"}
             </button>
           )}
 
@@ -640,13 +655,6 @@ export default function Editor() {
           {/* Error-type legend (§17.1). Colour is never the only signal — each
               suggestion also carries a text badge naming its type — but the legend is
               what makes the underlines readable at a glance. */}
-          {/* Live dictation preview. Shown, never inserted — see toggleVoice. */}
-          {listening && interim && (
-            <div className="pt-interim" aria-live="polite">
-              {interim}
-            </div>
-          )}
-
           {ime && imeOn && (
             <ul
               className="pt-ime"

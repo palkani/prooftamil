@@ -832,3 +832,6 @@ h1, h2, h3 { color: var(--fg); }
 .pt-workspace { max-width: 1160px; margin: 0 auto; padding: 1.4rem 1.25rem 4rem; }
 /* The editor is the hero of this screen: give it room, and let the panel scroll beside it. */
 .pt-workspace .pt-editor { min-height: 480px; }
+
+/* Voice: the transcribing state (mic released, waiting on Saarika). */
+.pt-filebar button:disabled { opacity: .6; }
