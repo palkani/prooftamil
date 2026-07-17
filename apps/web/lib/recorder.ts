@@ -20,6 +20,70 @@ export interface Recorder {
   stop: () => void;
 }
 
+/**
+ * Turn a getUserMedia failure into an accurate, actionable message.
+ *
+ * The naive mapping (NotFoundError -> "no microphone") is WRONG on macOS Chrome, and it
+ * misled a user who had two mics connected. When the browser lacks OS-level microphone
+ * permission, Chrome cannot even ENUMERATE the devices, so it throws NotFoundError — the
+ * mic is there, the browser just is not allowed to see it.
+ *
+ * So instead of trusting the error name, we ask the browser to list its devices. That
+ * distinguishes the two cases the error name conflates:
+ *   - audio inputs exist but their labels are blank  -> permission is blocking access
+ *   - no audio inputs at all                         -> genuinely no device (or a
+ *     privacy browser hiding them)
+ */
+async function diagnose(err: DOMException): Promise<string> {
+  let audioInputs = 0;
+  let hasLabels = false;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const inputs = devices.filter((d) => d.kind === "audioinput");
+    audioInputs = inputs.length;
+    // A non-empty label is only exposed AFTER permission is granted. Blank labels on a
+    // present device are the tell-tale of a permission block.
+    hasLabels = inputs.some((d) => d.label !== "");
+  } catch {
+    /* enumerateDevices can itself be blocked; fall through to the error-name mapping */
+  }
+
+  // A microphone is present but blocked — the case that misled the earlier message. This
+  // is by far the most common on macOS: the browser has to be enabled in
+  // System Settings › Privacy & Security › Microphone, AND fully quit and reopened, even
+  // after the in-page prompt is accepted.
+  if (audioInputs > 0 && !hasLabels) {
+    return (
+      "Your mic is connected but this browser is not allowed to use it. On a Mac, open " +
+      "System Settings → Privacy & Security → Microphone, turn the browser on, then quit " +
+      "and reopen it."
+    );
+  }
+
+  switch (err.name) {
+    case "NotAllowedError":
+    case "SecurityError":
+      return (
+        "Microphone access was denied. Click the mic/lock icon in the address bar and allow " +
+        "it for this site — and check the browser is enabled in your system microphone settings."
+      );
+    case "NotReadableError":
+    case "TrackStartError" as string:
+      return "The microphone is in use by another app (Zoom, Teams…). Close it and try again.";
+    case "NotFoundError":
+    case "DevicesNotFoundError" as string:
+      // Reached only when enumerateDevices also found nothing — so it really is absent, or
+      // a privacy browser (Brave shields, Firefox resist-fingerprinting) is hiding it.
+      return (
+        "No microphone is visible to the browser. If you have one connected, a privacy " +
+        "setting or extension may be hiding it — try disabling fingerprint/shield protection " +
+        "for this site."
+      );
+    default:
+      return `Could not open the microphone (${err.name || "unknown error"}).`;
+  }
+}
+
 /** MediaRecorder exists in all current browsers, but old ones and locked-down WebViews
  *  may not have it — check before offering the feature. */
 export const recordingSupported = () =>
@@ -44,39 +108,9 @@ export async function startRecording(handlers: {
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (e) {
-    // Map the DOMException to something the user can ACT on. The old code collapsed
-    // everything except NotAllowedError into "Could not open the microphone", which told
-    // the user nothing about how to fix it — and the failures need completely different
-    // fixes (grant permission vs plug in a mic vs quit the app holding it vs use HTTPS).
     const err = e as DOMException;
-    let msg: string;
-    switch (err.name) {
-      case "NotAllowedError":
-      case "SecurityError":
-        // Browser permission OR the OS-level mic permission for the browser. On macOS,
-        // System Settings › Privacy & Security › Microphone must have the browser ticked,
-        // even after the site prompt is accepted.
-        msg =
-          "Microphone blocked. Allow mic access for this site, and check that your browser " +
-          "has microphone permission in your system settings.";
-        break;
-      case "NotFoundError":
-      case "DevicesNotFoundError" as string:
-        msg = "No microphone was found. Plug one in and try again.";
-        break;
-      case "NotReadableError":
-      case "TrackStartError" as string:
-        // Another app (Zoom, Teams, a recorder) holds the device, or the OS refused it.
-        msg = "The microphone is in use by another app. Close it and try again.";
-        break;
-      default:
-        // Surface the real name so a report is actionable instead of a shrug.
-        msg = `Could not open the microphone (${err.name || "unknown error"}).`;
-    }
-    // Also log the full error for diagnosis — the message above is for the user, this is
-    // for whoever debugs it.
     console.warn("getUserMedia failed:", err.name, err.message);
-    handlers.onError?.(msg);
+    handlers.onError?.(await diagnose(err));
     return null;
   }
 
