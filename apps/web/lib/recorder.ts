@@ -128,6 +128,11 @@ export async function startRecording(handlers: {
   let peak = 0; // was ANY sound captured across the whole recording?
   try {
     audioCtx = new AudioContext();
+    // RESUME IT. Chrome creates an AudioContext SUSPENDED, and a suspended context's
+    // analyser reads pure silence (a flat 128) — so the meter showed dead even when the
+    // mic was capturing fine, and the "no sound" check then rejected a good recording.
+    // The click that got us here is a user gesture, so resume() is allowed.
+    if (audioCtx.state === "suspended") await audioCtx.resume().catch(() => {});
     const src = audioCtx.createMediaStreamSource(stream);
     const analyser = audioCtx.createAnalyser();
     analyser.fftSize = 512;
@@ -187,17 +192,13 @@ export async function startRecording(handlers: {
     // the mic captured anything (size + peak level) and in what format.
     console.info(`[voice] recorded ${blob.size} bytes as ${type}, peak level ${peak.toFixed(3)}`);
 
-    // The meter never moved: the OS handed us silence. This is the diagnosis for "mic is
-    // on but nothing happens" — the device is selected and permitted, but muted or the
-    // wrong input. A byte-size check alone would miss it, because an all-silence WebM is
-    // still several KB of container.
+    // The meter is a UI aid, NOT a gate. It runs off an AudioContext that the browser can
+    // leave suspended or throttle, so a flat peak does NOT prove silence — the MediaRecorder
+    // captures audio on a wholly separate path. Rejecting a recording because the meter
+    // stayed flat threw away perfectly good speech. So: log a low peak as a hint, but let
+    // the actual audio through and let Saarika be the judge of whether there were words.
     if (peak < 0.02) {
-      handlers.onError?.(
-        "No sound was captured — the level meter stayed flat. Your mic is muted, or the " +
-          "wrong input is selected. Check System Settings → Sound → Input and speak while " +
-          "the input level there moves.",
-      );
-      return;
+      console.warn("[voice] meter peak stayed low (", peak.toFixed(3), ") — uploading anyway; the meter is not authoritative");
     }
 
     if (blob.size < 1200) {
