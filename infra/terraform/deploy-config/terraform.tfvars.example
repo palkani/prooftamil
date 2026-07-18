@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars (gitignored) and fill in. Or pass via TF_VAR_* env vars.
+
+project_id        = "your-gcp-project-id"
+region            = "asia-south1"
+github_owner      = "palkani"
+github_repo       = "prooftamil"
+deployer_sa_email = "gh-deployer@your-gcp-project-id.iam.gserviceaccount.com"
+
+# Optional: the Cloud Run runtime SA (leave unset to use the default Compute SA).
+# runtime_sa_email = "prooftamil-run@your-gcp-project-id.iam.gserviceaccount.com"
+
+# Sensitive — prefer TF_VAR_gemini_api_key / TF_VAR_database_url / TF_VAR_redis_url
+# env vars over writing these into a file.
+gemini_api_key = "AIza..."
+database_url   = "postgres://user:pass@host:5432/db"
+redis_url      = "redis://default:pass@host:6379"
