@@ -12,6 +12,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"golang.org/x/text/unicode/norm"
+
 	"github.com/prooftamil/api/internal/cascade"
 )
 
@@ -145,7 +147,15 @@ func validate(raw rawResponse, target string, tier cascade.Tier) ([]cascade.Sugg
 		}
 
 		// A "correction" that changes nothing is noise in the UI.
-		if strings.TrimSpace(r.Suggestion) == "" || r.Suggestion == quote {
+		//
+		// Compare in NFC, not byte-for-byte. Tamil vowel signs are canonically
+		// equivalent under more than one encoding — ோ is U+0BCB, but also U+0BC7 +
+		// U+0BBE — so a model can echo the quote back in a different normal form:
+		// visually identical, byte-different. A raw `==` waves that through as a
+		// "fix", which is exactly how மோதல் → மோதல் reached the UI. Normalise both
+		// sides (and store the normalised suggestion, so what we apply is canonical).
+		suggestion := norm.NFC.String(r.Suggestion)
+		if strings.TrimSpace(suggestion) == "" || suggestion == norm.NFC.String(quote) {
 			continue
 		}
 
@@ -164,7 +174,7 @@ func validate(raw rawResponse, target string, tier cascade.Tier) ([]cascade.Sugg
 			Start:       start,
 			End:         end,
 			Original:    quote,
-			Suggestion:  r.Suggestion,
+			Suggestion:  suggestion,
 			Type:        r.Type,
 			Explanation: r.Explanation,
 			Confidence:  r.Confidence,

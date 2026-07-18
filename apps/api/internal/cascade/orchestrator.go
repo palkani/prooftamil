@@ -5,7 +5,10 @@ import (
 	"errors"
 	"log/slog"
 	"reflect"
+	"strings"
 	"time"
+
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/prooftamil/api/internal/cache"
 )
@@ -377,12 +380,22 @@ func (o *Orchestrator) Stream(ctx context.Context, text string, emit func(Event)
 // gate drops suggestions below the confidence threshold. Tier 1 deliberately
 // emits ambiguous corrections at low confidence so they die here rather than
 // being shown to a writer as if they were certain.
+//
+// It also drops NO-OPS: a "correction" whose replacement equals the original.
+// The tiers each try to reject these, but this is the one point every tier's
+// output funnels through, so it is where the guarantee belongs. The comparison is
+// in NFC — Tamil vowel signs have canonically-equivalent encodings (ோ is U+0BCB,
+// or U+0BC7 + U+0BBE), so a byte-wise check alone lets மோதல் → மோதல் through.
 func (o *Orchestrator) gate(in []Suggestion) []Suggestion {
 	out := make([]Suggestion, 0, len(in))
 	for _, s := range in {
-		if s.Confidence >= o.confidenceGate {
-			out = append(out, s)
+		if s.Confidence < o.confidenceGate {
+			continue
 		}
+		if norm.NFC.String(strings.TrimSpace(s.Original)) == norm.NFC.String(strings.TrimSpace(s.Suggestion)) {
+			continue
+		}
+		out = append(out, s)
 	}
 	return out
 }

@@ -98,6 +98,24 @@ func TestValidateRejectsANoOpCorrection(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsNoOpAcrossUnicodeNormalisation(t *testing.T) {
+	// மோதல் → மோதல் as seen live: the quote is composed (ோ = U+0BCB) and the model
+	// echoes it back decomposed (U+0BC7 + U+0BBE). Byte-different, visually identical,
+	// and a raw == let it through. It must be dropped as a no-op.
+	const composed = "மோதல்"
+	decomposed := strings.ReplaceAll(composed, "\u0BCB", "\u0BC7\u0BBE")
+	if composed == decomposed {
+		t.Fatal("test setup: strings should differ byte-for-byte")
+	}
+	sentence := "இங்கே " + composed + " உள்ளது."
+	raw := rawResponse{Suggestions: []rawSuggestion{
+		{Quote: composed, Suggestion: decomposed, Type: "spelling", Confidence: 0.9},
+	}}
+	if got, _ := validate(raw, sentence, cascade.TierPrimary); len(got) != 0 {
+		t.Errorf("a no-op that differs only in Unicode normalisation must be dropped, got %d", len(got))
+	}
+}
+
 func TestValidateKeepsGoodRowsWhenOneRowIsBad(t *testing.T) {
 	// One unlocatable row must not discard the model's correct work.
 	raw := rawResponse{Suggestions: []rawSuggestion{
