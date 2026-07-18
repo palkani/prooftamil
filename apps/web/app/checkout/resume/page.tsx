@@ -1,6 +1,5 @@
 import Link from "next/link";
 
-import Nav from "@/components/Nav";
 
 export const metadata = { title: "Finish upgrading — ProofTamil" };
 
@@ -14,7 +13,6 @@ export const metadata = { title: "Finish upgrading — ProofTamil" };
 export default function Resume() {
   return (
     <>
-      <Nav />
       <main className="pt-narrow">
         <div className="pt-auth">
           <h1>Pick up where you left off</h1>

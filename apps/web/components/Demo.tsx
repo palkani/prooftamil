@@ -56,9 +56,20 @@ export default function Demo() {
     timer.current = setTimeout(() => check(v), 600);
   };
 
+  const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+
   return (
     <section className="pt-demo">
       <div className="pt-demo-box">
+        <div className="pt-demo-head">
+          <div className="pt-demo-dots" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </div>
+          <span className="pt-demo-title">Tamil Editor</span>
+          <span className="pt-demo-words">{words} words</span>
+        </div>
         <textarea
           lang="ta"
           spellCheck={false}

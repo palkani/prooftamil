@@ -30,10 +30,9 @@ export default async function Post({ params }: { params: Promise<{ slug: string 
         />
       </article>
 
-      <footer className="pt-foot">
+      <p className="pt-article-back">
         <a href="/blog">← All posts</a>
-        <a href="/write">Editor</a>
-      </footer>
+      </p>
     </main>
   );
 }

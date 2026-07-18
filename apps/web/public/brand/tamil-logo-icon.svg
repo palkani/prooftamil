@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 156 162" role="img" aria-label="Proof தமிழ் Icon">
+  <title>Proof தமிழ்</title>
+  <defs>
+    <linearGradient id="ig" x1="25%" y1="0%" x2="75%" y2="100%">
+      <stop offset="0%" stop-color="#7dd3fc"/>
+      <stop offset="45%" stop-color="#38a3f5"/>
+      <stop offset="100%" stop-color="#1a4fd8"/>
+    </linearGradient>
+    <linearGradient id="ie" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0c30a0" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#0c30a0" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="ishadow" x="-8%" y="-6%" width="120%" height="120%">
+      <feDropShadow dx="3" dy="4" stdDeviation="5" flood-color="#1a4fd8" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <!-- Shield -->
+  <path d="M 78 6 C 55 6, 14 18, 10 22 L 10 82 C 10 122, 78 154, 78 154 C 78 154, 146 122, 146 82 L 146 22 C 142 18, 101 6, 78 6 Z"
+    fill="url(#ig)" filter="url(#ishadow)"/>
+  <!-- Left edge depth -->
+  <path d="M 78 6 C 55 6, 14 18, 10 22 L 10 82 C 10 122, 78 154, 78 154"
+    fill="url(#ie)"/>
+  <!-- Inner highlight -->
+  <path d="M 78 12 C 58 12, 20 22, 17 26 L 17 80 C 17 116, 78 146, 78 146 C 78 146, 139 116, 139 80 L 139 26 C 136 22, 98 12, 78 12 Z"
+    fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="3"/>
+  <!-- Checkmark -->
+  <path d="M 35 80 L 63 108 L 122 52"
+    fill="none" stroke="white" stroke-width="18"
+    stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 148" role="img" aria-label="ProofTamil - Tamil AI Proofreading"
+     text-rendering="optimizeLegibility" shape-rendering="geometricPrecision">
+  <title>ProofTamil</title>
+  <defs>
+    <!-- Icon background: deep indigo -->
+    <linearGradient id="iconGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#6366F1"/>
+      <stop offset="50%"  stop-color="#4F46E5"/>
+      <stop offset="100%" stop-color="#1E1B4B"/>
+    </linearGradient>
+    <!-- Top gloss sheen -->
+    <linearGradient id="iconGloss" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"   stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <!-- Wordmark: "Proof" -->
+    <linearGradient id="proofGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"   stop-color="#4338CA"/>
+      <stop offset="100%" stop-color="#1E1B4B"/>
+    </linearGradient>
+    <!-- Icon soft shadow -->
+    <filter id="iconShadow" x="-14%" y="-10%" width="132%" height="130%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#4F46E5" flood-opacity="0.32"/>
+    </filter>
+    <!-- Amber glow on checkmark tip -->
+    <filter id="amberGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- ── Icon background: rounded square ── -->
+  <rect x="4" y="4" width="138" height="138" rx="28" ry="28"
+        fill="url(#iconGrad)" filter="url(#iconShadow)"/>
+  <!-- Gloss highlight -->
+  <rect x="4" y="4" width="138" height="68" rx="28" ry="28"
+        fill="url(#iconGloss)"/>
+
+  <!--
+    ICON: Stylised editorial mark — a bold pen-stroke checkmark
+    The "proofreader's tick" is the universal symbol for correction/approval.
+    The amber dot at the start = pen touching the page.
+    Completely original; no Tamil letter, no competitor overlap.
+  -->
+
+  <!-- Checkmark stroke (white, bold, round caps) -->
+  <path d="M 34 76  L 58 103  L 116 44"
+        stroke="white" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"
+        fill="none" opacity="0.97"/>
+
+  <!-- Amber accent: dot where the pen lifts (end of checkmark) -->
+  <circle cx="116" cy="44" r="8" fill="#F59E0B" filter="url(#amberGlow)"/>
+
+  <!-- Thin amber underline at icon bottom (brand accent) -->
+  <rect x="26" y="126" width="94" height="7" rx="3.5" fill="#F59E0B" opacity="0.90"/>
+
+  <!-- ── Wordmark: single flow "Proof" + "தமிழ்" ── -->
+  <text x="158" y="102"
+    font-size="70"
+    font-weight="800"
+    text-anchor="start">
+    <tspan
+      font-family="'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif"
+      fill="url(#proofGrad)"
+      letter-spacing="-2">Proof</tspan><!--
+    --><tspan
+      font-family="'Noto Serif Tamil', 'Tamil MN', 'Latha', 'Vijaya', serif"
+      fill="#F59E0B"
+      dx="3"
+      letter-spacing="0">தமிழ்</tspan>
+  </text>
+
+  <!-- Subtle amber baseline under full wordmark -->
+  <rect x="158" y="116" width="490" height="3" rx="1.5" fill="#F59E0B" opacity="0.22"/>
+</svg>

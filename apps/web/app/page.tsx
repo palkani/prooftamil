@@ -1,42 +1,38 @@
 import Demo from "@/components/Demo";
-import Nav from "@/components/Nav";
 
 /**
- * The landing page (§17.2 screen 1).
+ * The landing page (§17.2 screen 1), rebuilt to match the production hero: an aurora wash,
+ * the "Write Tamil with Confidence." gradient headline, the "AI proofreads, OCR digitises,
+ * you shine." promise, and dual CTAs — over a LIVE editor the visitor can type into.
  *
- * It leads with the WORKING PRODUCT, not a pitch. Someone who writes Tamil can tell in
- * five seconds whether a Tamil proofreader is any good — so the fastest way to earn their
- * trust is to let them try it, on their own text, before anything asks them for anything.
- *
- * The hero follows the production design language (aurora wash, gradient headline, Tamil
- * subhead, dual CTA, trust strip) so a returning user recognises the product instead of
- * wondering whether they are in the right place.
+ * It leads with the WORKING PRODUCT, not a pitch. Someone who writes Tamil can tell in five
+ * seconds whether a Tamil proofreader is any good, so the fastest way to earn trust is to
+ * let them try it, on their own text, before anything asks them for anything.
  */
 export default function Home() {
   return (
     <>
-      <Nav />
-
       <div className="pt-hero-wrap">
         <header className="pt-hero">
-          <span className="pt-eyebrow">✦ Built for Tamil. Unlike anything else.</span>
+          <span className="pt-eyebrow">✦ TAMIL PROOFREADING · OCR · AI</span>
 
           <h1>
-            Write Tamil <span className="grad">without a Tamil keyboard</span>
-            <span className="ta">தமிழ் எழுத்துச் சரிபார்ப்பு</span>
+            Write Tamil <span className="grad">with Confidence.</span>
+            <span className="ta">AI proofreads, OCR digitises, you shine.</span>
           </h1>
 
           <p className="pt-sub">
-            Type <code>vanakkam</code> and get வணக்கம். Spelling, sandhi and grammar checked
-            as you write — by an engine that knows when to stay quiet.
+            Catch grammar errors in <strong>2 seconds</strong>. Convert handwritten Tamil
+            notes to text with one photo. Type in English letters and get Tamil — all free,
+            no app download needed.
           </p>
 
           <div className="pt-cta-row">
             <a className="btn-hero" href="/write">
-              Start writing — free →
+              Start Free — No Credit Card →
             </a>
-            <a className="btn-hero-outline" href="/pricing">
-              See Pro
+            <a className="btn-hero-outline" href="/ocr">
+              📷 Try Tamil OCR Free
             </a>
           </div>
 
@@ -89,12 +85,6 @@ export default function Home() {
             </p>
           </div>
         </section>
-
-        <footer className="pt-foot">
-          <a href="/pricing">Pricing</a>
-          <a href="/blog">Blog</a>
-          <span>Nothing you paste here is stored.</span>
-        </footer>
       </main>
     </>
   );

@@ -1,6 +1,5 @@
 import Link from "next/link";
 
-import Nav from "@/components/Nav";
 
 export const metadata = { title: "Welcome to Pro — ProofTamil" };
 
@@ -8,7 +7,6 @@ export const metadata = { title: "Welcome to Pro — ProofTamil" };
 export default function Success() {
   return (
     <>
-      <Nav />
       <main className="pt-narrow">
         <div className="pt-success">
           <div className="pt-check" aria-hidden="true">

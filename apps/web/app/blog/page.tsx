@@ -1,5 +1,4 @@
 import { allPosts } from "@/lib/blog";
-import Nav from "@/components/Nav";
 
 export const metadata = { title: "Blog — ProofTamil" };
 
@@ -7,7 +6,6 @@ export default function Blog() {
   const posts = allPosts();
   return (
     <>
-      <Nav />
       <main className="pt-landing">
       <header className="pt-header">
         <h1>
@@ -24,11 +22,6 @@ export default function Blog() {
           <time>{p.date}</time>
         </a>
       ))}
-
-      <footer className="pt-foot">
-        <a href="/">Home</a>
-        <a href="/write">Editor</a>
-      </footer>
       </main>
     </>
   );

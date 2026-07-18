@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
-import { Inter, Noto_Sans_Tamil } from "next/font/google";
+import { Inter, Noto_Sans_Tamil, Noto_Serif_Tamil } from "next/font/google";
 import "./globals.css";
+import Nav from "@/components/Nav";
+import Ticker from "@/components/Ticker";
+import SiteFooter from "@/components/SiteFooter";
 
 /**
  * Tamil typography (§17.1) — the differentiator, and the thing a team that does not
@@ -29,6 +32,18 @@ const ui = Inter({
   display: "swap",
 });
 
+/**
+ * A Tamil SERIF for display headings on the marketing/tool pages — production sets the
+ * "AI Content Writer" and hero headlines in a serif for editorial warmth. Body Tamil stays
+ * on Noto Sans Tamil (set above); this is opt-in per-heading via var(--font-tamil-serif).
+ */
+const tamilSerif = Noto_Serif_Tamil({
+  subsets: ["tamil"],
+  weight: ["600", "700"],
+  variable: "--font-tamil-serif",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: "ProofTamil — தமிழ் எழுத்துச் சரிபார்ப்பு",
   description:
@@ -46,8 +61,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     //
     // It suppresses the warning for the <body> element ONLY, not its children — so a real
     // mismatch inside a component still surfaces. It hides extension noise, not our bugs.
-    <html lang="ta" className={`${tamil.variable} ${ui.variable}`} suppressHydrationWarning>
-      <body suppressHydrationWarning>{children}</body>
+    <html
+      lang="ta"
+      className={`${tamil.variable} ${ui.variable} ${tamilSerif.variable}`}
+      suppressHydrationWarning
+    >
+      <body suppressHydrationWarning>
+        <Nav />
+        <Ticker />
+        {children}
+        <SiteFooter />
+      </body>
     </html>
   );
 }

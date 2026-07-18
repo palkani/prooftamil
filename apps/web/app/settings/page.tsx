@@ -1,6 +1,5 @@
 import Link from "next/link";
 
-import Nav from "@/components/Nav";
 
 export const metadata = { title: "Settings — ProofTamil" };
 
@@ -14,7 +13,6 @@ export const metadata = { title: "Settings — ProofTamil" };
 export default function Settings() {
   return (
     <>
-      <Nav />
       <main className="pt-narrow">
         <header className="pt-header">
           <h1>Settings</h1>

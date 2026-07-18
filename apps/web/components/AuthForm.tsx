@@ -2,25 +2,35 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Logo from "./Logo";
 
 type Kind = "signup" | "login" | "forgot";
 
 /**
- * Signup / Login / Password reset (§17.2 screens 2, 3).
+ * Signup / Login / Password reset (§17.2 screens 2, 3) — production's centered auth card:
+ * the logo, a welcome line, "Continue with Google", an "OR USE EMAIL" divider, the fields,
+ * and a footer link. Sits on the aurora wash, matching the live app.
  *
- * THE FORMS ARE REAL AND THE BACKEND IS NOT. Auth is Phase 6 and blocked on the §1
- * accounts (Supabase, the Google OAuth consent screen), so nothing here can actually
- * create a session.
- *
- * Submitting therefore says so, plainly, instead of spinning forever or throwing a
- * network error. A form that pretends to work is worse than one that admits it does not:
- * the user knows within a second, and so does the next engineer.
+ * THE FORMS ARE REAL AND THE BACKEND IS NOT. Auth is Phase 6 and blocked on the §1 accounts
+ * (Supabase, the Google OAuth consent screen), so nothing here can create a session yet.
+ * Submitting says so plainly instead of spinning forever — a form that pretends to work is
+ * worse than one that admits it does not.
  */
 export default function AuthForm({ kind }: { kind: Kind }) {
   const [notice, setNotice] = useState("");
 
-  const title =
-    kind === "signup" ? "Create an account" : kind === "login" ? "Sign in" : "Reset your password";
+  const heading =
+    kind === "signup"
+      ? "Create your account"
+      : kind === "login"
+        ? "Welcome Back"
+        : "Reset your password";
+  const sub =
+    kind === "signup"
+      ? "Start writing better Tamil in seconds"
+      : kind === "login"
+        ? "Sign in to your Tamil writing workspace"
+        : "We'll email you a link to set a new password";
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,96 +41,107 @@ export default function AuthForm({ kind }: { kind: Kind }) {
   };
 
   return (
-    <div className="pt-auth">
-      <h1>{title}</h1>
-      <p className="pt-auth-sub">
-        {kind === "forgot"
-          ? "We will email you a link to set a new password."
-          : "Your drafts sync across devices, and Pro unlocks export and the AI writer."}
-      </p>
-
-      {kind !== "forgot" && (
-        <>
-          <button type="button" className="pt-google" onClick={submit}>
-            <span aria-hidden="true">G</span> Continue with Google
-          </button>
-          <div className="pt-or">
-            <span>or</span>
-          </div>
-        </>
-      )}
-
-      <form onSubmit={submit}>
-        {kind === "signup" && (
-          <label>
-            Name
-            <input name="name" autoComplete="name" placeholder="உங்கள் பெயர்" />
-          </label>
-        )}
-
-        <label>
-          Email
-          <input
-            type="email"
-            name="email"
-            required
-            autoComplete="email"
-            placeholder="you@example.com"
-          />
-        </label>
+    <main className="pt-authwrap">
+      <div className="pt-authcard pt-auth">
+        <Logo />
+        <h1>{heading}</h1>
+        <p className="pt-auth-sub">{sub}</p>
 
         {kind !== "forgot" && (
+          <>
+            <button type="button" className="pt-google" onClick={submit}>
+              <span aria-hidden="true">G</span> Sign in with Google
+            </button>
+            <div className="pt-or">
+              <span>OR USE EMAIL</span>
+            </div>
+          </>
+        )}
+
+        <form onSubmit={submit}>
+          {kind === "signup" && (
+            <label>
+              Full Name
+              <input name="name" autoComplete="name" placeholder="உங்கள் பெயர்" />
+            </label>
+          )}
+
           <label>
-            Password
+            Email Address
             <input
-              type="password"
-              name="password"
+              type="email"
+              name="email"
               required
-              minLength={8}
-              autoComplete={kind === "signup" ? "new-password" : "current-password"}
-              placeholder="at least 8 characters"
+              autoComplete="email"
+              placeholder="you@example.com"
             />
           </label>
+
+          {kind !== "forgot" && (
+            <label>
+              Password
+              <input
+                type="password"
+                name="password"
+                required
+                minLength={8}
+                autoComplete={kind === "signup" ? "new-password" : "current-password"}
+                placeholder="Enter your password"
+              />
+            </label>
+          )}
+
+          {kind === "login" && (
+            <div className="pt-auth-row">
+              <label>
+                <input type="checkbox" name="remember" /> Remember me
+              </label>
+              <Link href="/forgot">Forgot password?</Link>
+            </div>
+          )}
+
+          <button type="submit" className="pt-primary">
+            {kind === "signup"
+              ? "Create account"
+              : kind === "login"
+                ? "Sign In"
+                : "Send reset link"}
+          </button>
+        </form>
+
+        {notice && (
+          <div className="pt-gate" role="status">
+            <strong>Not yet available</strong>
+            <p>{notice}</p>
+            <Link href="/write" className="pt-inline-cta">
+              Open the editor anyway →
+            </Link>
+          </div>
         )}
 
-        <button type="submit" className="pt-primary">
-          {kind === "signup"
-            ? "Create account"
-            : kind === "login"
-              ? "Sign in"
-              : "Send reset link"}
-        </button>
-      </form>
+        <p className="pt-auth-foot">
+          {kind === "login" && (
+            <>
+              Don&apos;t have an account? <Link href="/signup">Sign up for free</Link>
+            </>
+          )}
+          {kind === "signup" && (
+            <>
+              Already have an account? <Link href="/login">Sign in</Link>
+            </>
+          )}
+          {kind === "forgot" && (
+            <>
+              Remembered it? <Link href="/login">Sign in</Link>
+            </>
+          )}
+        </p>
 
-      {notice && (
-        <div className="pt-gate" role="status">
-          <strong>Not yet available</strong>
-          <p>{notice}</p>
-          <Link href="/write" className="pt-inline-cta">
-            Open the editor anyway →
-          </Link>
-        </div>
-      )}
-
-      <p className="pt-auth-alt">
-        {kind === "login" && (
-          <>
-            <Link href="/forgot">Forgot your password?</Link>
-            <span> · New here? </span>
-            <Link href="/signup">Create an account</Link>
-          </>
-        )}
-        {kind === "signup" && (
-          <>
-            Already have an account? <Link href="/login">Sign in</Link>
-          </>
-        )}
-        {kind === "forgot" && (
-          <>
-            Remembered it? <Link href="/login">Sign in</Link>
-          </>
-        )}
-      </p>
-    </div>
+        <p className="pt-demo-note">
+          ℹ️ <strong>Demo Mode:</strong> accounts ship in Phase 6 — the editor works now
+          without one.
+        </p>
+      </div>
+    </main>
   );
 }

@@ -1,12 +1,10 @@
 import Editor from "@/components/Editor";
-import Nav from "@/components/Nav";
 
 export const metadata = { title: "Editor — ProofTamil" };
 
 export default function Write() {
   return (
     <>
-      <Nav />
       {/*
         No page heading here. The nav already says ProofTamil, and the editor is the hero
         of this screen — a second wordmark above it just pushes the writing surface down
