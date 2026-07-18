@@ -26,6 +26,13 @@ ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 COPY --from=build /opt/venv /opt/venv
 COPY --from=build /src/app /app/app
 
+# The Tamil rule data (349k-word lexicon, sandhi tables, translit scheme) is NOT part of
+# the Python package — the service loads it at runtime from /data/tamil-rules (see
+# app/tamil/lexicon.py, engine.py, translit.py). Without this the container boots with an
+# EMPTY lexicon and Tier-1 spelling is silently disabled ("degraded" in /ready). Build
+# context is the repo root, so packages/tamil-rules resolves here.
+COPY packages/tamil-rules /data/tamil-rules
+
 WORKDIR /app
 USER appuser
 

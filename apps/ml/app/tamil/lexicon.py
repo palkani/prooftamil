@@ -30,9 +30,21 @@ log = logging.getLogger(__name__)
 
 # packages/tamil-rules/dictionaries/, resolved from this file's location so the
 # service works the same from a repo checkout and from inside a container.
-_DEFAULT_DIRS = (
-    Path(__file__).resolve().parents[4] / "packages" / "tamil-rules" / "dictionaries",
-    Path("/data/tamil-rules/dictionaries"),  # container mount
+#
+# The repo-relative candidate is GUARDED: in a container the app lives at
+# /app/app/tamil, which has no parents[4], and an eager index there raises
+# IndexError at import — before the /data fallback is ever tried. So only offer the
+# repo path when the source tree is actually deep enough.
+_HERE = Path(__file__).resolve()
+_DEFAULT_DIRS = tuple(
+    d
+    for d in (
+        _HERE.parents[4] / "packages" / "tamil-rules" / "dictionaries"
+        if len(_HERE.parents) > 4
+        else None,
+        Path("/data/tamil-rules/dictionaries"),  # container mount
+    )
+    if d is not None
 )
 
 

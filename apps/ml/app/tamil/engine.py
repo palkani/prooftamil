@@ -40,9 +40,18 @@ from .script import Token, confusable_variants, is_tamil, normalize, tokenize
 
 log = logging.getLogger(__name__)
 
-_RULES_DIRS = (
-    Path(__file__).resolve().parents[4] / "packages" / "tamil-rules" / "sandhi",
-    Path("/data/tamil-rules/sandhi"),
+# Guard the repo-relative path: in a container this file has no parents[4], so an
+# eager index would crash at import before the /data fallback is reached.
+_HERE = Path(__file__).resolve()
+_RULES_DIRS = tuple(
+    d
+    for d in (
+        _HERE.parents[4] / "packages" / "tamil-rules" / "sandhi"
+        if len(_HERE.parents) > 4
+        else None,
+        Path("/data/tamil-rules/sandhi"),
+    )
+    if d is not None
 )
 
 # Confidence assigned when exactly one confusable swap yields a known word. High,

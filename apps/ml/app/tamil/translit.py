@@ -48,9 +48,18 @@ from .script import normalize
 
 log = logging.getLogger(__name__)
 
-_SCHEME_DIRS = (
-    Path(__file__).resolve().parents[4] / "packages" / "tamil-rules" / "translit",
-    Path("/data/tamil-rules/translit"),
+# Guard the repo-relative path: in a container this file has no parents[4], so an
+# eager index would crash at import before the /data fallback is reached.
+_HERE = Path(__file__).resolve()
+_SCHEME_DIRS = tuple(
+    d
+    for d in (
+        _HERE.parents[4] / "packages" / "tamil-rules" / "translit"
+        if len(_HERE.parents) > 4
+        else None,
+        Path("/data/tamil-rules/translit"),
+    )
+    if d is not None
 )
 
 # Words rarer than this are still typeable, just ranked below common ones. This is
