@@ -1,0 +1,180 @@
+# Deploy v2 (api + ml) to Cloud Run.
+#
+# This is the CD counterpart to ci.yml (which only builds/tests and never pushes).
+# It is MANUAL by design — you pick the environment and click Run — so a merge to
+# main can never deploy on its own while we are still canarying against the v1 UI.
+#
+# What it does, in order:
+#   1. build + push the ml image, deploy it (api depends on it)
+#   2. build + push the api image, resolve the ml URL, deploy api wired to it
+#   3. smoke-test the api's liveness endpoint; fail the run if it is not healthy
+#
+# ── One-time setup in the GitHub repo (Settings) ────────────────────────────
+#   Secrets:
+#     GCP_SA_KEY   JSON key of a deploy service account with roles:
+#                  run.admin, artifactregistry.writer, iam.serviceAccountUser,
+#                  secretmanager.secretAccessor
+#   Variables:
+#     GCP_PROJECT  your GCP project id
+#     GCP_REGION   e.g. asia-south1   (falls back to asia-south1 if unset)
+#
+#   App secrets live in Secret Manager (NOT here), referenced by name below:
+#     gemini, db, redis, jwtpriv, jwtpub   (Sarvam is optional and omitted)
+#
+#   (More secure alternative to GCP_SA_KEY: Workload Identity Federation — swap the
+#   auth step for `workload_identity_provider` + `service_account`. Left as SA key
+#   for the simplest first setup.)
+
+name: Deploy v2 (Cloud Run)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [staging, prod]
+        default: staging
+      services:
+        description: Which services to deploy
+        type: choice
+        options: [both, api, ml]
+        default: both
+
+# Never cancel a deploy mid-flight, and never run two deploys to the same env at once.
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # harmless for SA-key auth; required if you switch to WIF
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Bind to a GitHub Environment so you can require a reviewer/approval on prod
+    # (Settings → Environments → prod → Required reviewers).
+    environment: ${{ inputs.environment }}
+    env:
+      REGION: ${{ vars.GCP_REGION || 'asia-south1' }}
+      PROJECT: ${{ vars.GCP_PROJECT }}
+      ENV: ${{ inputs.environment }}
+      # Cloud Run service naming: prooftamil-<svc>-<env> (matches infra/env-manifest.yaml)
+      ML_SVC: prooftamil-ml-${{ inputs.environment }}
+      API_SVC: prooftamil-api-${{ inputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard — required config is present
+        run: |
+          test -n "$PROJECT" || { echo "::error::repo variable GCP_PROJECT is not set"; exit 1; }
+          echo "Deploying '${{ inputs.services }}' to $ENV in $PROJECT/$REGION"
+
+      - id: auth
+        name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker + ensure Artifact Registry repo
+        run: |
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          # Best-effort: create the repo if it does not exist yet.
+          gcloud artifacts repositories create prooftamil \
+            --repository-format=docker --location="$REGION" \
+            --description="ProofTamil v2 images" 2>/dev/null || true
+
+      - name: Compute image refs
+        id: img
+        run: |
+          REG="${REGION}-docker.pkg.dev/${PROJECT}/prooftamil"
+          TAG="${GITHUB_SHA::12}"
+          echo "reg=$REG" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      # ── ML ────────────────────────────────────────────────────────────────
+      - name: Build & push ml
+        if: inputs.services == 'both' || inputs.services == 'ml'
+        run: |
+          IMG="${{ steps.img.outputs.reg }}/ml"
+          docker build -f infra/docker/ml.Dockerfile \
+            -t "$IMG:${{ steps.img.outputs.tag }}" -t "$IMG:latest" .
+          docker push "$IMG:${{ steps.img.outputs.tag }}"
+          docker push "$IMG:latest"
+
+      - name: Deploy ml
+        if: inputs.services == 'both' || inputs.services == 'ml'
+        run: |
+          # ml holds NO secrets and persists NOTHING (a stateless rules engine), so
+          # allow-unauthenticated is acceptable and avoids needing a VPC connector for
+          # api→ml. HARDENING: switch to `--ingress internal --no-allow-unauthenticated`
+          # + Direct VPC egress on the api once you set up a connector.
+          # min-instances 1 keeps the 349k-word lexicon warm (no cold-start reload).
+          gcloud run deploy "$ML_SVC" \
+            --image "${{ steps.img.outputs.reg }}/ml:${{ steps.img.outputs.tag }}" \
+            --region "$REGION" --port 8081 \
+            --allow-unauthenticated \
+            --min-instances 1 --max-instances 10 \
+            --cpu 1 --memory 1Gi \
+            --set-env-vars "APP_ENV=${ENV},SERVICE_REGION=${REGION},WORKERS=1" \
+            --quiet
+
+      # ── API ───────────────────────────────────────────────────────────────
+      - name: Build & push api
+        if: inputs.services == 'both' || inputs.services == 'api'
+        run: |
+          IMG="${{ steps.img.outputs.reg }}/api"
+          docker build -f infra/docker/api.Dockerfile \
+            -t "$IMG:${{ steps.img.outputs.tag }}" -t "$IMG:latest" .
+          docker push "$IMG:${{ steps.img.outputs.tag }}"
+          docker push "$IMG:latest"
+
+      - name: Resolve ml URL
+        id: mlurl
+        run: |
+          URL=$(gcloud run services describe "$ML_SVC" --region "$REGION" \
+                  --format='value(status.url)' 2>/dev/null || true)
+          test -n "$URL" || { echo "::error::ml service $ML_SVC not found — deploy ml first"; exit 1; }
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy api
+        if: inputs.services == 'both' || inputs.services == 'api'
+        run: |
+          # App secrets are bound BY REFERENCE from Secret Manager — never printed,
+          # never stored in this workflow. Sarvam is intentionally omitted (optional).
+          gcloud run deploy "$API_SVC" \
+            --image "${{ steps.img.outputs.reg }}/api:${{ steps.img.outputs.tag }}" \
+            --region "$REGION" --port 8080 \
+            --allow-unauthenticated \
+            --min-instances 1 --max-instances 100 \
+            --cpu 1 --memory 512Mi \
+            --set-env-vars "APP_ENV=${ENV},PRIMARY_REGION=${REGION},ML_SERVICE_URL=${{ steps.mlurl.outputs.url }}" \
+            --set-secrets "GEMINI_API_KEY=gemini:latest,DATABASE_URL=db:latest,REDIS_URL=redis:latest,JWT_PRIVATE_KEY=jwtpriv:latest,JWT_PUBLIC_KEY=jwtpub:latest" \
+            --quiet
+
+      # ── Smoke gate ────────────────────────────────────────────────────────
+      - name: Smoke test (api liveness)
+        if: inputs.services == 'both' || inputs.services == 'api'
+        run: |
+          API=$(gcloud run services describe "$API_SVC" --region "$REGION" --format='value(status.url)')
+          echo "api → $API"
+          # Liveness must pass or the deploy is bad. --retry rides out cold start.
+          curl -fsS --retry 8 --retry-all-errors --retry-delay 3 "$API/internal/health" && echo
+          # Readiness is informational here (503 if a dependency is down); print, don't fail.
+          echo "readiness:"; curl -s "$API/internal/ready" || true; echo
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Deploy: $ENV"
+            echo "- services: \`${{ inputs.services }}\`"
+            echo "- image tag: \`${{ steps.img.outputs.tag }}\`"
+            echo "- ml: \`$ML_SVC\`"
+            echo "- api: \`$API_SVC\`"
+          } >> "$GITHUB_STEP_SUMMARY"
