@@ -64,8 +64,11 @@ jobs:
       ML_SVC: prooftamil-ml-${{ github.event.inputs.environment }}
       API_SVC: prooftamil-api-${{ github.event.inputs.environment }}
       GATEWAY_SVC: prooftamil-gateway-${{ github.event.inputs.environment }}
-      # The existing v1 backend the gateway falls back to for non-v2 paths.
-      V1_BACKEND_SVC: prooftamil-backend
+      # The gateway lives in a domain-mapping-supported region (asia-south1 is NOT one;
+      # us-central1 is, and api.prooftamil.com already maps there). v1 traffic stays
+      # in-region via backend-us; only the newer v2 paths cross to asia-south1.
+      GATEWAY_REGION: us-central1
+      V1_BACKEND_SVC: prooftamil-backend-us
 
     steps:
       - uses: actions/checkout@v4
@@ -184,22 +187,23 @@ jobs:
       - name: Deploy gateway
         if: github.event.inputs.services == 'both' || github.event.inputs.services == 'gateway'
         run: |
-          # v2 upstream = the api we just deployed; v1 upstream = the existing backend.
+          # v2 upstream = api in $REGION (asia-south1); v1 upstream = backend-us in
+          # $GATEWAY_REGION (us-central1, same region as the gateway → fast).
           API_URL=$(gcloud run services describe "$API_SVC" --region "$REGION" --format='value(status.url)')
           test -n "$API_URL" || { echo "::error::api service $API_SVC not found — deploy api first"; exit 1; }
-          V1_URL=$(gcloud run services describe "$V1_BACKEND_SVC" --region "$REGION" --format='value(status.url)' 2>/dev/null || true)
-          echo "gateway routing → v1=${V1_URL:-<none>}  v2=$API_URL"
+          V1_URL=$(gcloud run services describe "$V1_BACKEND_SVC" --region "$GATEWAY_REGION" --format='value(status.url)' 2>/dev/null || true)
+          echo "gateway ($GATEWAY_REGION) routing → v1=${V1_URL:-<none>}  v2=$API_URL"
 
           # ^@^ makes @ the delimiter so the comma inside V2_ROUTES is preserved.
           gcloud run deploy "$GATEWAY_SVC" \
             --image "${{ steps.img.outputs.reg }}/gateway:${{ steps.img.outputs.tag }}" \
-            --region "$REGION" --port 8080 \
+            --region "$GATEWAY_REGION" --port 8080 \
             --allow-unauthenticated \
             --min-instances 1 --max-instances 20 --cpu 1 --memory 256Mi \
             --set-env-vars "^@^V1_BACKEND_URL=${V1_URL}@V2_API_URL=${API_URL}@V2_ROUTES=/api/v1/proofread,/api/v1/suggest@TRANSLATE_CORRECTIONS=false" \
             --quiet
 
-          GW=$(gcloud run services describe "$GATEWAY_SVC" --region "$REGION" --format='value(status.url)')
+          GW=$(gcloud run services describe "$GATEWAY_SVC" --region "$GATEWAY_REGION" --format='value(status.url)')
           echo "gateway → $GW"
           curl -fsS --retry 8 --retry-all-errors --retry-delay 3 "$GW/gateway/health" && echo
 
