@@ -38,7 +38,7 @@ on:
       services:
         description: Which services to deploy
         type: choice
-        options: [both, api, ml]
+        options: [both, api, ml, gateway]
         default: both
 
 # Never cancel a deploy mid-flight, and never run two deploys to the same env at once.
@@ -63,6 +63,9 @@ jobs:
       # Cloud Run service naming: prooftamil-<svc>-<env> (matches infra/env-manifest.yaml)
       ML_SVC: prooftamil-ml-${{ github.event.inputs.environment }}
       API_SVC: prooftamil-api-${{ github.event.inputs.environment }}
+      GATEWAY_SVC: prooftamil-gateway-${{ github.event.inputs.environment }}
+      # The existing v1 backend the gateway falls back to for non-v2 paths.
+      V1_BACKEND_SVC: prooftamil-backend
 
     steps:
       - uses: actions/checkout@v4
@@ -168,6 +171,38 @@ jobs:
           # Readiness is informational here (503 if a dependency is down); print, don't fail.
           echo "readiness:"; curl -s "$API/internal/ready" || true; echo
 
+      # ── Gateway (common API host: routes v1/v2 by path, translates contracts) ──
+      - name: Build & push gateway
+        if: github.event.inputs.services == 'both' || github.event.inputs.services == 'gateway'
+        run: |
+          IMG="${{ steps.img.outputs.reg }}/gateway"
+          docker build -f infra/docker/gateway.Dockerfile \
+            -t "$IMG:${{ steps.img.outputs.tag }}" -t "$IMG:latest" .
+          docker push "$IMG:${{ steps.img.outputs.tag }}"
+          docker push "$IMG:latest"
+
+      - name: Deploy gateway
+        if: github.event.inputs.services == 'both' || github.event.inputs.services == 'gateway'
+        run: |
+          # v2 upstream = the api we just deployed; v1 upstream = the existing backend.
+          API_URL=$(gcloud run services describe "$API_SVC" --region "$REGION" --format='value(status.url)')
+          test -n "$API_URL" || { echo "::error::api service $API_SVC not found — deploy api first"; exit 1; }
+          V1_URL=$(gcloud run services describe "$V1_BACKEND_SVC" --region "$REGION" --format='value(status.url)' 2>/dev/null || true)
+          echo "gateway routing → v1=${V1_URL:-<none>}  v2=$API_URL"
+
+          # ^@^ makes @ the delimiter so the comma inside V2_ROUTES is preserved.
+          gcloud run deploy "$GATEWAY_SVC" \
+            --image "${{ steps.img.outputs.reg }}/gateway:${{ steps.img.outputs.tag }}" \
+            --region "$REGION" --port 8080 \
+            --allow-unauthenticated \
+            --min-instances 1 --max-instances 20 --cpu 1 --memory 256Mi \
+            --set-env-vars "^@^V1_BACKEND_URL=${V1_URL}@V2_API_URL=${API_URL}@V2_ROUTES=/api/v1/proofread,/api/v1/suggest@TRANSLATE_CORRECTIONS=false" \
+            --quiet
+
+          GW=$(gcloud run services describe "$GATEWAY_SVC" --region "$REGION" --format='value(status.url)')
+          echo "gateway → $GW"
+          curl -fsS --retry 8 --retry-all-errors --retry-delay 3 "$GW/gateway/health" && echo
+
       - name: Summary
         if: always()
         run: |
@@ -177,4 +212,5 @@ jobs:
             echo "- image tag: \`${{ steps.img.outputs.tag }}\`"
             echo "- ml: \`$ML_SVC\`"
             echo "- api: \`$API_SVC\`"
+            echo "- gateway: \`$GATEWAY_SVC\`"
           } >> "$GITHUB_STEP_SUMMARY"
