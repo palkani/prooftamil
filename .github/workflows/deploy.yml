@@ -43,7 +43,7 @@ on:
 
 # Never cancel a deploy mid-flight, and never run two deploys to the same env at once.
 concurrency:
-  group: deploy-${{ inputs.environment }}
+  group: deploy-${{ github.event.inputs.environment }}
   cancel-in-progress: false
 
 permissions:
@@ -55,14 +55,14 @@ jobs:
     runs-on: ubuntu-latest
     # Bind to a GitHub Environment so you can require a reviewer/approval on prod
     # (Settings → Environments → prod → Required reviewers).
-    environment: ${{ inputs.environment }}
+    environment: ${{ github.event.inputs.environment }}
     env:
       REGION: ${{ vars.GCP_REGION || 'asia-south1' }}
       PROJECT: ${{ vars.GCP_PROJECT }}
-      ENV: ${{ inputs.environment }}
+      ENV: ${{ github.event.inputs.environment }}
       # Cloud Run service naming: prooftamil-<svc>-<env> (matches infra/env-manifest.yaml)
-      ML_SVC: prooftamil-ml-${{ inputs.environment }}
-      API_SVC: prooftamil-api-${{ inputs.environment }}
+      ML_SVC: prooftamil-ml-${{ github.event.inputs.environment }}
+      API_SVC: prooftamil-api-${{ github.event.inputs.environment }}
 
     steps:
       - uses: actions/checkout@v4
@@ -70,7 +70,7 @@ jobs:
       - name: Guard — required config is present
         run: |
           test -n "$PROJECT" || { echo "::error::repo variable GCP_PROJECT is not set"; exit 1; }
-          echo "Deploying '${{ inputs.services }}' to $ENV in $PROJECT/$REGION"
+          echo "Deploying '${{ github.event.inputs.services }}' to $ENV in $PROJECT/$REGION"
 
       - id: auth
         name: Authenticate to GCP
@@ -99,7 +99,7 @@ jobs:
 
       # ── ML ────────────────────────────────────────────────────────────────
       - name: Build & push ml
-        if: inputs.services == 'both' || inputs.services == 'ml'
+        if: github.event.inputs.services == 'both' || github.event.inputs.services == 'ml'
         run: |
           IMG="${{ steps.img.outputs.reg }}/ml"
           docker build -f infra/docker/ml.Dockerfile \
@@ -108,7 +108,7 @@ jobs:
           docker push "$IMG:latest"
 
       - name: Deploy ml
-        if: inputs.services == 'both' || inputs.services == 'ml'
+        if: github.event.inputs.services == 'both' || github.event.inputs.services == 'ml'
         run: |
           # ml holds NO secrets and persists NOTHING (a stateless rules engine), so
           # allow-unauthenticated is acceptable and avoids needing a VPC connector for
@@ -126,7 +126,7 @@ jobs:
 
       # ── API ───────────────────────────────────────────────────────────────
       - name: Build & push api
-        if: inputs.services == 'both' || inputs.services == 'api'
+        if: github.event.inputs.services == 'both' || github.event.inputs.services == 'api'
         run: |
           IMG="${{ steps.img.outputs.reg }}/api"
           docker build -f infra/docker/api.Dockerfile \
@@ -143,7 +143,7 @@ jobs:
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
       - name: Deploy api
-        if: inputs.services == 'both' || inputs.services == 'api'
+        if: github.event.inputs.services == 'both' || github.event.inputs.services == 'api'
         run: |
           # App secrets are bound BY REFERENCE from Secret Manager — never printed,
           # never stored in this workflow. Sarvam is intentionally omitted (optional).
@@ -159,7 +159,7 @@ jobs:
 
       # ── Smoke gate ────────────────────────────────────────────────────────
       - name: Smoke test (api liveness)
-        if: inputs.services == 'both' || inputs.services == 'api'
+        if: github.event.inputs.services == 'both' || github.event.inputs.services == 'api'
         run: |
           API=$(gcloud run services describe "$API_SVC" --region "$REGION" --format='value(status.url)')
           echo "api → $API"
@@ -173,7 +173,7 @@ jobs:
         run: |
           {
             echo "### Deploy: $ENV"
-            echo "- services: \`${{ inputs.services }}\`"
+            echo "- services: \`${{ github.event.inputs.services }}\`"
             echo "- image tag: \`${{ steps.img.outputs.tag }}\`"
             echo "- ml: \`$ML_SVC\`"
             echo "- api: \`$API_SVC\`"
