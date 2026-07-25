@@ -162,21 +162,21 @@ func Load() (*Config, error) {
 		}
 	}
 
-	// Secrets are required everywhere except dev, where the local stack runs
-	// without cloud credentials.
+	// Secrets required outside dev. The list is deliberately minimal — only what the
+	// proofreading path genuinely cannot run without.
 	//
-	// SARVAM_API_KEY is deliberately NOT required. Sarvam is only the fallback
-	// corrector (Gemini is primary + verifier) and the server voice-typing ASR; it
-	// was demoted from primary for poor quality/latency (plan risk R4). Running
-	// Gemini-only is a supported configuration — the router simply has no fallback,
-	// and /transcribe stays disabled (browser Web Speech covers voice). Set the key
-	// to re-enable the fallback and server ASR; it is not a hard dependency.
+	// NOT required (all supported when absent, each degrading gracefully):
+	//   SARVAM_API_KEY — fallback corrector + server ASR only; demoted for quality
+	//     (plan risk R4). Gemini-only runs fine; /transcribe just stays disabled and
+	//     browser Web Speech covers voice.
+	//   DATABASE_URL   — no handler queries Postgres yet (drafts/auth are Phase 6).
+	//   REDIS_URL      — only the exact-match cache and writer quota; a miss just
+	//     falls through to the model. Set it to cut cost on repeated text.
+	// Set any of them to light up the corresponding feature; none is a hard dependency.
 	if c.AppEnv != "dev" {
 		for _, r := range []struct{ name, val string }{
 			{"JWT_PRIVATE_KEY", c.JWTPrivateKey},
 			{"JWT_PUBLIC_KEY", c.JWTPublicKey},
-			{"DATABASE_URL", c.DatabaseURL},
-			{"REDIS_URL", c.RedisURL},
 			{"GEMINI_API_KEY", c.GeminiAPIKey},
 		} {
 			if r.val == "" {

@@ -154,7 +154,7 @@ jobs:
             --min-instances 1 --max-instances 100 \
             --cpu 1 --memory 512Mi \
             --set-env-vars "APP_ENV=${ENV},PRIMARY_REGION=${REGION},ML_SERVICE_URL=${{ steps.mlurl.outputs.url }}" \
-            --set-secrets "GEMINI_API_KEY=gemini:latest,DATABASE_URL=db:latest,REDIS_URL=redis:latest,JWT_PRIVATE_KEY=jwtpriv:latest,JWT_PUBLIC_KEY=jwtpub:latest" \
+            --set-secrets "GEMINI_API_KEY=gemini:latest,JWT_PRIVATE_KEY=jwtpriv:latest,JWT_PUBLIC_KEY=jwtpub:latest" \
             --quiet
 
       # ── Smoke gate ────────────────────────────────────────────────────────

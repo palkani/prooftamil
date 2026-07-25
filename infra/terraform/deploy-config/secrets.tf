@@ -28,10 +28,11 @@ resource "google_project_service" "secretmanager" {
 }
 
 locals {
+  # Only what the api actually requires. DATABASE_URL / REDIS_URL are optional (the
+  # api runs without them), so they are intentionally not created here — add them
+  # back to this map if/when you want server-side drafts or the Redis cache.
   secrets = {
     gemini  = var.gemini_api_key
-    db      = var.database_url
-    redis   = var.redis_url
     jwtpriv = tls_private_key.jwt.private_key_pem
     jwtpub  = tls_private_key.jwt.public_key_pem
   }
