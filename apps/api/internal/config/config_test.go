@@ -52,18 +52,19 @@ func TestLoadRequiresSecretsOutsideDev(t *testing.T) {
 
 	// Every missing secret should be reported at once, not just the first.
 	for _, want := range []string{
-		"JWT_PRIVATE_KEY", "JWT_PUBLIC_KEY", "DATABASE_URL",
-		"REDIS_URL", "GEMINI_API_KEY",
+		"JWT_PRIVATE_KEY", "JWT_PUBLIC_KEY", "GEMINI_API_KEY",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error should name the missing %s; got:\n%v", want, err)
 		}
 	}
 
-	// SARVAM_API_KEY is optional (fallback corrector + server ASR only), so its
-	// absence must NOT be reported as a missing required secret.
-	if strings.Contains(err.Error(), "SARVAM_API_KEY") {
-		t.Errorf("SARVAM_API_KEY is optional and must not be required; got:\n%v", err)
+	// These are optional — each degrades gracefully — so their absence must NOT be
+	// reported as a missing required secret.
+	for _, optional := range []string{"SARVAM_API_KEY", "DATABASE_URL", "REDIS_URL"} {
+		if strings.Contains(err.Error(), optional) {
+			t.Errorf("%s is optional and must not be required; got:\n%v", optional, err)
+		}
 	}
 }
 
@@ -71,9 +72,8 @@ func TestLoadSucceedsInProdWhenSecretsPresent(t *testing.T) {
 	t.Setenv("APP_ENV", "prod")
 	t.Setenv("JWT_PRIVATE_KEY", "priv")
 	t.Setenv("JWT_PUBLIC_KEY", "pub")
-	t.Setenv("DATABASE_URL", "postgres://localhost/db")
-	t.Setenv("REDIS_URL", "redis://localhost:6379/0")
-	// No SARVAM_API_KEY on purpose: prod must load without it (it is optional).
+	// No DATABASE_URL / REDIS_URL / SARVAM_API_KEY on purpose: prod must load with
+	// just the JWT keypair and Gemini — the rest are optional.
 	t.Setenv("GEMINI_API_KEY", "sk-gemini")
 
 	cfg, err := Load()
