@@ -40,6 +40,14 @@ on:
         type: choice
         options: [both, api, ml, gateway]
         default: both
+      translate_corrections:
+        description: "Gateway: serve /api/corrections from v2 (translated, with v1 fallback)"
+        type: boolean
+        default: false
+      v2_routes:
+        description: "Gateway: comma-separated paths routed to the v2 api"
+        type: string
+        default: /api/v1/proofread,/api/v1/suggest
 
 # Never cancel a deploy mid-flight, and never run two deploys to the same env at once.
 concurrency:
@@ -194,13 +202,15 @@ jobs:
           V1_URL=$(gcloud run services describe "$V1_BACKEND_SVC" --region "$GATEWAY_REGION" --format='value(status.url)' 2>/dev/null || true)
           echo "gateway ($GATEWAY_REGION) routing → v1=${V1_URL:-<none>}  v2=$API_URL"
 
+          # Gateway config comes straight from the workflow inputs, so toggling v2
+          # behaviour is a re-run with different checkboxes — never a gcloud command.
           # ^@^ makes @ the delimiter so the comma inside V2_ROUTES is preserved.
           gcloud run deploy "$GATEWAY_SVC" \
             --image "${{ steps.img.outputs.reg }}/gateway:${{ steps.img.outputs.tag }}" \
             --region "$GATEWAY_REGION" --port 8080 \
             --allow-unauthenticated \
             --min-instances 1 --max-instances 20 --cpu 1 --memory 256Mi \
-            --set-env-vars "^@^V1_BACKEND_URL=${V1_URL}@V2_API_URL=${API_URL}@V2_ROUTES=/api/v1/proofread,/api/v1/suggest@TRANSLATE_CORRECTIONS=false" \
+            --set-env-vars "^@^V1_BACKEND_URL=${V1_URL}@V2_API_URL=${API_URL}@V2_ROUTES=${{ github.event.inputs.v2_routes }}@TRANSLATE_CORRECTIONS=${{ github.event.inputs.translate_corrections }}" \
             --quiet
 
           GW=$(gcloud run services describe "$GATEWAY_SVC" --region "$GATEWAY_REGION" --format='value(status.url)')
