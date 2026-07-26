@@ -15,6 +15,15 @@ RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir .
 
 FROM python:3.11-slim
 
+# opencv-python-headless (app/ocr image preprocessing) needs libglib at runtime.
+# Without it `import cv2` raises and the OCR router simply isn't mounted (the guard
+# in app/main keeps proofreading working) — but then handwriting OCR silently 502s,
+# so install it here to keep the pipeline live. Kept lean: headless opencv needs no
+# libGL/X11.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Non-root: Cloud Run does not require it, but a container escape shouldn't
 # start as root.
 RUN useradd --create-home --uid 10001 appuser

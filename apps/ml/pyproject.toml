@@ -7,6 +7,14 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
     "pydantic>=2.9",
+    # multipart file uploads for the OCR route (POST /api/ocr/extract-words).
+    "python-multipart>=0.0.9",
+    # Handwritten-Tamil OCR pipeline (app/ocr): image cleanup + Gemini vision.
+    # opencv-python-headless needs libglib at runtime — see infra/docker/ml.Dockerfile.
+    "opencv-python-headless>=4.8",
+    "numpy>=1.24",
+    "Pillow>=10.0",
+    "google-generativeai>=0.8.0",
 ]
 
 [project.optional-dependencies]
