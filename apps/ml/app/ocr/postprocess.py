@@ -98,8 +98,9 @@ def unknown_words(text: str, lexicon: object | None = None) -> list[str]:
 
 # ── correction LLM pass ──────────────────────────────────────────────────────
 
-_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
-_MODEL_FALLBACK = os.getenv("GEMINI_MODEL_FALLBACK", "gemini-2.5-flash")
+# gemini-2.5-pro is retired for new API keys — default to 2.5-flash (see ocr_engine).
+_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+_MODEL_FALLBACK = os.getenv("GEMINI_MODEL_FALLBACK", "gemini-2.0-flash")
 _CONFIGURED = False
 
 
@@ -112,6 +113,21 @@ def _ensure_configured() -> None:
         raise RuntimeError("GEMINI_API_KEY is not set")
     genai.configure(api_key=key)
     _CONFIGURED = True
+
+
+def _resp_text(resp) -> str:
+    """Safely read text from a Gemini response — the `.text` accessor RAISES when a
+    candidate has no text part, so read the parts directly and return '' instead."""
+    try:
+        for cand in getattr(resp, "candidates", None) or []:
+            content = getattr(cand, "content", None)
+            parts = getattr(content, "parts", None) or []
+            text = "".join(getattr(p, "text", "") or "" for p in parts)
+            if text.strip():
+                return text.strip()
+    except Exception:
+        pass
+    return ""
 
 
 def _diff(before: str, after: str) -> list[str]:
@@ -135,7 +151,7 @@ def correct_tamil(text: str, context_hint: str = "") -> tuple[str, list[str]]:
                 resp = model.generate_content(
                     prompt, generation_config={"temperature": 0.1, "top_p": 1.0}
                 )
-                corrected = (getattr(resp, "text", "") or "").strip()
+                corrected = _resp_text(resp)
                 if corrected:
                     return corrected, _diff(text, corrected)
             except Exception as e:
