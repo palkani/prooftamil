@@ -124,18 +124,24 @@ jobs:
       - name: Deploy ml
         if: github.event.inputs.services == 'both' || github.event.inputs.services == 'ml'
         run: |
-          # ml holds NO secrets and persists NOTHING (a stateless rules engine), so
-          # allow-unauthenticated is acceptable and avoids needing a VPC connector for
-          # api→ml. HARDENING: switch to `--ingress internal --no-allow-unauthenticated`
-          # + Direct VPC egress on the api once you set up a connector.
+          # ml is public (allow-unauthenticated) to avoid a VPC connector for api→ml.
+          # It now also hosts the handwriting-OCR pipeline (app/ocr), which calls
+          # Gemini — so GEMINI_API_KEY is bound BY REFERENCE from Secret Manager (never
+          # printed/stored). The deterministic Tier-1 rules engine itself still holds no
+          # secrets; the key is only read on an OCR request. HARDENING: switch to
+          # `--ingress internal --no-allow-unauthenticated` + Direct VPC egress on the
+          # api once you set up a connector.
           # min-instances 1 keeps the 349k-word lexicon warm (no cold-start reload).
+          # 2Gi/2 CPU: opencv upscales phone photos to ~1500px+ and Gemini OCR is the
+          # slow path — the extra headroom avoids OOM/timeouts on large handwriting.
           gcloud run deploy "$ML_SVC" \
             --image "${{ steps.img.outputs.reg }}/ml:${{ steps.img.outputs.tag }}" \
             --region "$REGION" --port 8081 \
             --allow-unauthenticated \
             --min-instances 1 --max-instances 10 \
-            --cpu 1 --memory 1Gi \
+            --cpu 2 --memory 2Gi --timeout 120 \
             --set-env-vars "APP_ENV=${ENV},SERVICE_REGION=${REGION},WORKERS=1" \
+            --set-secrets "GEMINI_API_KEY=gemini:latest" \
             --quiet
 
       # ── API ───────────────────────────────────────────────────────────────

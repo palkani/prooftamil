@@ -43,6 +43,21 @@ _engine = TamilEngine()
 # disk. Read-only after construction, so it is safe to share across threads.
 _ime = Transliterator(lexicon=_engine.lexicon)
 
+# Handwritten-Tamil OCR (Gemini vision pipeline), mounted DEFENSIVELY: it pulls
+# heavy optional deps (opencv, google-generativeai). If any fail to import — or the
+# router raises at wiring time — we log and carry on with an unaffected proofreading
+# engine rather than crash the service. The OOV confidence check reuses _engine's
+# already-loaded lexicon (no second 28 MB read). Requires GEMINI_API_KEY at request
+# time; without it the pipeline degrades to a best-effort Tesseract path.
+try:
+    from .ocr.router import router as ocr_router, set_lexicon as _set_ocr_lexicon
+
+    _set_ocr_lexicon(_engine.lexicon)
+    app.include_router(ocr_router)
+    log.info("OCR pipeline mounted at /api/ocr (lexicon shared)")
+except Exception as _ocr_exc:  # pragma: no cover - defensive import guard
+    log.warning("OCR pipeline NOT mounted (%s) — proofreading unaffected", _ocr_exc)
+
 
 SuggestionType = Literal["spelling", "sandhi", "grammar", "agreement", "style"]
 
