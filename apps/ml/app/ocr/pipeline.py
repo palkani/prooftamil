@@ -79,7 +79,7 @@ def run_pipeline(
 
     if fast:
         # Single pass, no correction — cheaper, still Gemini-quality per line.
-        lines = [ocr_engine.transcribe(img, context_hint) for img in line_images]
+        lines = ocr_engine.transcribe_lines(line_images, context_hint)
         text = "\n".join(lines).strip()
         rid = data_logger.log_request(
             line_images, text, context_hint, extra={"mode": "fast"}
