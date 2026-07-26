@@ -23,15 +23,14 @@ import re
 import unicodedata
 from difflib import ndiff
 from functools import lru_cache
-from typing import List, Optional, Set, Tuple
 
 import google.generativeai as genai
 
 logger = logging.getLogger(__name__)
 
-CORRECTION_PROMPT = """You are a Tamil proofreading assistant. Below is raw OCR output from handwritten
-Tamil notes. Fix ONLY clear OCR recognition errors using Tamil spelling, grammar,
-and sentence context.
+CORRECTION_PROMPT = """You are a Tamil proofreading assistant. Below is raw OCR output from
+handwritten Tamil notes. Fix ONLY clear OCR recognition errors using Tamil spelling,
+grammar, and sentence context.
 
 Strict rules:
 - Do NOT change words that are already valid Tamil.
@@ -67,7 +66,7 @@ def load_dictionary() -> frozenset:
         )
         return frozenset()
     opener = gzip.open if path.endswith(".gz") else open
-    words: Set[str] = set()
+    words: set[str] = set()
     with opener(path, "rt", encoding="utf-8", errors="ignore") as fh:
         for line in fh:
             # Support "word" and "word<tab>count" formats.
@@ -78,11 +77,11 @@ def load_dictionary() -> frozenset:
     return frozenset(words)
 
 
-def tamil_words(text: str) -> List[str]:
+def tamil_words(text: str) -> list[str]:
     return [_norm(m.group(0)) for m in _WORD_RE.finditer(text)]
 
 
-def unknown_words(text: str, lexicon: Optional[object] = None) -> List[str]:
+def unknown_words(text: str, lexicon: object | None = None) -> list[str]:
     """Tamil words in `text` that are out-of-vocabulary (OOV).
 
     If `lexicon` is provided it is used via `word in lexicon` (the shared
@@ -115,12 +114,12 @@ def _ensure_configured() -> None:
     _CONFIGURED = True
 
 
-def _diff(before: str, after: str) -> List[str]:
+def _diff(before: str, after: str) -> list[str]:
     """Compact word-level change list, for logging/inspection."""
     return [d for d in ndiff(before.split(), after.split()) if d[0] in "+-"]
 
 
-def correct_tamil(text: str, context_hint: str = "") -> Tuple[str, List[str]]:
+def correct_tamil(text: str, context_hint: str = "") -> tuple[str, list[str]]:
     """Run the correction pass. Returns (corrected_text, diff). On any failure the
     original text is returned unchanged — correction must never lose content."""
     if not text.strip():

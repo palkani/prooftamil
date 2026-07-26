@@ -50,7 +50,8 @@ _ime = Transliterator(lexicon=_engine.lexicon)
 # already-loaded lexicon (no second 28 MB read). Requires GEMINI_API_KEY at request
 # time; without it the pipeline degrades to a best-effort Tesseract path.
 try:
-    from .ocr.router import router as ocr_router, set_lexicon as _set_ocr_lexicon
+    from .ocr.router import router as ocr_router
+    from .ocr.router import set_lexicon as _set_ocr_lexicon
 
     _set_ocr_lexicon(_engine.lexicon)
     app.include_router(ocr_router)

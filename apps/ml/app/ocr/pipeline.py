@@ -17,9 +17,8 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Dict, Optional
 
-from . import preprocessing, segmentation, ocr_engine, postprocess, confidence, data_logger
+from . import confidence, data_logger, ocr_engine, postprocess, preprocessing, segmentation
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +58,8 @@ def run_pipeline(
     image_bytes: bytes,
     context_hint: str,
     fast: bool,
-    lexicon: Optional[object] = None,
-) -> Dict:
+    lexicon: object | None = None,
+) -> dict:
     """The full OCR pipeline. Returns a dict matching the OCRResponse fields."""
     # No key, or explicitly fast with no key → Tesseract (best effort).
     if not gemini_available():
@@ -81,8 +80,10 @@ def run_pipeline(
     if fast:
         # Single pass, no correction — cheaper, still Gemini-quality per line.
         lines = [ocr_engine.transcribe(img, context_hint) for img in line_images]
-        text = "\n".join(l for l in lines).strip()
-        rid = data_logger.log_request(line_images, text, context_hint, extra={"mode": "fast"})
+        text = "\n".join(lines).strip()
+        rid = data_logger.log_request(
+            line_images, text, context_hint, extra={"mode": "fast"}
+        )
         return {
             "engine": ocr_engine.MODEL, "mode": "fast",
             "full_text": text, "text": text,
@@ -95,7 +96,9 @@ def run_pipeline(
     raw_text = "\n".join(passes["pass_a"]).strip()
     corrected, _diff = postprocess.correct_tamil(raw_text, context_hint)
     scored = confidence.score(passes["pass_a"], passes["pass_b"], corrected, lexicon=lexicon)
-    rid = data_logger.log_request(line_images, scored["text"], context_hint, extra={"mode": "accurate"})
+    rid = data_logger.log_request(
+        line_images, scored["text"], context_hint, extra={"mode": "accurate"}
+    )
     return {
         "engine": ocr_engine.MODEL, "mode": "accurate",
         "full_text": scored["text"], "text": scored["text"],

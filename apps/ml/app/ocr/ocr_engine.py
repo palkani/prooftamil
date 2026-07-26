@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Dict, List
 
 import google.generativeai as genai
 from PIL import Image
@@ -81,7 +80,9 @@ def transcribe(image: Image.Image, context_hint: str = "") -> str:
             return ""
 
 
-def transcribe_document(line_images: List[Image.Image], context_hint: str = "") -> Dict[str, List[str]]:
+def transcribe_document(
+    line_images: list[Image.Image], context_hint: str = ""
+) -> dict[str, list[str]]:
     """Two full passes over every line. Returns {'pass_a': [...], 'pass_b': [...]}
     with one entry per input line, aligned by index."""
     pass_a = [transcribe(img, context_hint) for img in line_images]
