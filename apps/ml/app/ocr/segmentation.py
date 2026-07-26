@@ -13,7 +13,6 @@ full pages competently too, so this degrades rather than fails.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List
 
 import cv2
 import numpy as np
@@ -42,7 +41,7 @@ def _ink_rows(gray: np.ndarray) -> np.ndarray:
     return ink.sum(axis=1)
 
 
-def segment_lines(image: Image.Image) -> List[Segment]:
+def segment_lines(image: Image.Image) -> list[Segment]:
     """Return top-to-bottom line segments; falls back to [whole page]."""
     rgb = np.array(image.convert("RGB"))
     gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
@@ -55,7 +54,7 @@ def segment_lines(image: Image.Image) -> List[Segment]:
     # A row "has text" if its ink is above a small fraction of the busiest row.
     threshold = max(1.0, proj.max() * 0.06)
 
-    bands: List[tuple] = []
+    bands: list[tuple] = []
     in_band = False
     start = 0
     for y, val in enumerate(proj):
@@ -72,7 +71,7 @@ def segment_lines(image: Image.Image) -> List[Segment]:
     if not bands or (len(bands) == 1 and bands[0][1] - bands[0][0] > 0.9 * h):
         return [Segment(0, image, (0, 0, w, h))]
 
-    segments: List[Segment] = []
+    segments: list[Segment] = []
     for i, (y1, y2) in enumerate(bands):
         yy1 = max(0, y1 - LINE_PAD)
         yy2 = min(h, y2 + LINE_PAD)

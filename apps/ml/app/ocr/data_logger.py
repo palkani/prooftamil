@@ -21,8 +21,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from datetime import UTC, datetime
 
 from PIL import Image
 
@@ -37,18 +36,18 @@ def enabled() -> bool:
 
 
 def log_request(
-    line_images: List[Image.Image],
+    line_images: list[Image.Image],
     final_text: str,
     context_hint: str = "",
-    extra: Optional[Dict] = None,
-) -> Optional[str]:
+    extra: dict | None = None,
+) -> str | None:
     """Persist the line images + transcription as a labelled sample. Returns a
     request id (used later by log_correction), or None if logging is disabled."""
     if not _ENABLED:
         return None
     try:
         rid = uuid.uuid4().hex[:16]
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+        stamp = datetime.now(UTC).strftime("%Y%m%d")
         sample_dir = os.path.join(_ROOT, stamp, rid)
         os.makedirs(sample_dir, exist_ok=True)
 
@@ -63,7 +62,7 @@ def log_request(
 
         manifest = {
             "id": rid,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "context": context_hint,
             "final_text": final_text,
             "corrected_text": None,  # filled in when a human edits (log_correction)
@@ -84,16 +83,15 @@ def log_correction(request_id: str, corrected_text: str) -> bool:
     if not _ENABLED or not request_id:
         return False
     try:
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
         # The correction may arrive on a later UTC day than the request; scan recent days.
         for day in _recent_days():
             sample_dir = os.path.join(_ROOT, day, request_id)
             path = os.path.join(sample_dir, "manifest.json")
             if os.path.exists(path):
-                with open(path, "r", encoding="utf-8") as fh:
+                with open(path, encoding="utf-8") as fh:
                     manifest = json.load(fh)
                 manifest["corrected_text"] = corrected_text
-                manifest["corrected_at"] = datetime.now(timezone.utc).isoformat()
+                manifest["corrected_at"] = datetime.now(UTC).isoformat()
                 _write_manifest(sample_dir, manifest)
                 logger.info("attached correction to sample %s", request_id)
                 return True
@@ -104,13 +102,13 @@ def log_correction(request_id: str, corrected_text: str) -> bool:
         return False
 
 
-def _write_manifest(sample_dir: str, manifest: Dict) -> None:
+def _write_manifest(sample_dir: str, manifest: dict) -> None:
     with open(os.path.join(sample_dir, "manifest.json"), "w", encoding="utf-8") as fh:
         json.dump(manifest, fh, ensure_ascii=False, indent=2)
 
 
-def _recent_days(n: int = 7) -> List[str]:
+def _recent_days(n: int = 7) -> list[str]:
     from datetime import timedelta
 
-    today = datetime.now(timezone.utc)
+    today = datetime.now(UTC)
     return [(today - timedelta(days=d)).strftime("%Y%m%d") for d in range(n)]

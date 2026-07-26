@@ -16,12 +16,11 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import List, Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from . import ocr_engine, data_logger
+from . import data_logger, ocr_engine
 from .pipeline import gemini_available, run_pipeline, tesseract_available
 
 logger = logging.getLogger(__name__)
@@ -32,7 +31,7 @@ MAX_IMAGE_SIZE = 10 * 1024 * 1024
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp"}
 
 # The shared ProofTamil lexicon, injected by app.main. Read-only after set.
-_LEXICON: Optional[object] = None
+_LEXICON: object | None = None
 
 
 def set_lexicon(lexicon: object) -> None:
@@ -53,10 +52,10 @@ class OCRResponse(BaseModel):
     mode: str
     full_text: str = ""          # kept for the existing Express integration
     text: str = ""               # same value, the plan's field name
-    flagged_words: List[FlaggedWord] = []
-    confidence_pct: Optional[float] = None
+    flagged_words: list[FlaggedWord] = []
+    confidence_pct: float | None = None
     lines_count: int = 0
-    request_id: Optional[str] = None
+    request_id: str | None = None
     processing_time_ms: float = 0.0
     message: str = ""
 

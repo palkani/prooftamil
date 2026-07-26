@@ -14,7 +14,6 @@ rough, "how much of this can you trust" number.
 from __future__ import annotations
 
 from difflib import SequenceMatcher
-from typing import Dict, List, Optional
 
 from .postprocess import tamil_words, unknown_words
 
@@ -33,11 +32,11 @@ def _disagreeing_words(a: str, b: str) -> set:
 
 
 def score(
-    pass_a_lines: List[str],
-    pass_b_lines: List[str],
+    pass_a_lines: list[str],
+    pass_b_lines: list[str],
     corrected_text: str,
-    lexicon: Optional[object] = None,
-) -> Dict:
+    lexicon: object | None = None,
+) -> dict:
     """Merge the agreement + vocabulary signals over the corrected document.
 
     `lexicon` (optional) is the shared ProofTamil ML lexicon used for the OOV
@@ -46,7 +45,7 @@ def score(
     Returns {text, flagged_words: [{word, line, reason}], confidence_pct}.
     """
     # Per-line set of words the two passes disagreed on.
-    disagree_per_line: List[set] = []
+    disagree_per_line: list[set] = []
     n = max(len(pass_a_lines), len(pass_b_lines))
     for i in range(n):
         a = pass_a_lines[i] if i < len(pass_a_lines) else ""
@@ -56,7 +55,7 @@ def score(
 
     oov = set(unknown_words(corrected_text, lexicon=lexicon))
 
-    flagged: List[Dict] = []
+    flagged: list[dict] = []
     seen = set()
     total = 0
     trusted = 0
