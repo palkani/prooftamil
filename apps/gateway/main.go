@@ -102,6 +102,9 @@ func main() {
 	port := env("PORT", "8080")
 	v1URL := strings.TrimRight(env("V1_BACKEND_URL", ""), "/")
 	v2URL := strings.TrimRight(env("V2_API_URL", ""), "/")
+	// The ml service (Tier-1 rules engine) also hosts the handwriting-OCR pipeline at
+	// /api/ocr/*. It is a separate upstream from the v2 api, so it gets its own proxy.
+	mlURL := strings.TrimRight(env("ML_API_URL", ""), "/")
 	v2Routes := splitCSV(env("V2_ROUTES", "/api/v1/proofread,/api/v1/suggest"))
 	translateCorrections := env("TRANSLATE_CORRECTIONS", "false") == "true"
 
@@ -109,12 +112,15 @@ func main() {
 		log.Fatal("gateway: set V1_BACKEND_URL and/or V2_API_URL")
 	}
 
-	var v1Proxy, v2Proxy *httputil.ReverseProxy
+	var v1Proxy, v2Proxy, mlProxy *httputil.ReverseProxy
 	if v1URL != "" {
 		v1Proxy = newProxy(v1URL)
 	}
 	if v2URL != "" {
 		v2Proxy = newProxy(v2URL)
+	}
+	if mlURL != "" {
+		mlProxy = newProxy(mlURL)
 	}
 
 	// Separate client for the translation call — the reverse proxies handle their
@@ -138,6 +144,13 @@ func main() {
 	}
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Handwriting OCR lives on the ml service, not v1/v2. Route it first so the
+		// clean api.prooftamil.com/api/ocr/* URL reaches the pipeline.
+		if mlProxy != nil && strings.HasPrefix(r.URL.Path, "/api/ocr/") {
+			mlProxy.ServeHTTP(w, r)
+			return
+		}
+
 		// Translation route: serve the v1 `/api/corrections` contract from v2's
 		// proofread. If it can't (bad input, v2 down/slow, non-text docJson), it
 		// returns false and we fall through to the real v1 backend — so turning
@@ -160,8 +173,8 @@ func main() {
 		http.Error(w, "no upstream configured for "+r.URL.Path, http.StatusBadGateway)
 	})
 
-	log.Printf("gateway listening on :%s  v1=%q v2=%q v2Routes=%v translateCorrections=%v",
-		port, v1URL, v2URL, v2Routes, translateCorrections)
+	log.Printf("gateway listening on :%s  v1=%q v2=%q ml=%q v2Routes=%v translateCorrections=%v",
+		port, v1URL, v2URL, mlURL, v2Routes, translateCorrections)
 	log.Fatal(http.ListenAndServe(":"+port, mux))
 }
 
