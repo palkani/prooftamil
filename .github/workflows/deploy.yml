@@ -73,10 +73,13 @@ jobs:
       API_SVC: prooftamil-api-${{ github.event.inputs.environment }}
       GATEWAY_SVC: prooftamil-gateway-${{ github.event.inputs.environment }}
       # The gateway lives in a domain-mapping-supported region (asia-south1 is NOT one;
-      # us-central1 is, and api.prooftamil.com already maps there). v1 traffic stays
-      # in-region via backend-us; only the newer v2 paths cross to asia-south1.
+      # us-central1 is, and api.prooftamil.com already maps there). The v1 backend
+      # used to have a us-central1 replica (backend-us) for co-located v1 serving,
+      # but ~all traffic is Asia so that replica was retired to cut idle cost. Both
+      # v1 and v2 upstreams now live in asia-south1; gateway → upstream is one
+      # cross-region hop, which is invisible at current traffic levels.
       GATEWAY_REGION: us-central1
-      V1_BACKEND_SVC: prooftamil-backend-us
+      V1_BACKEND_SVC: prooftamil-backend
 
     steps:
       - uses: actions/checkout@v4
@@ -201,11 +204,12 @@ jobs:
       - name: Deploy gateway
         if: github.event.inputs.services == 'both' || github.event.inputs.services == 'gateway'
         run: |
-          # v2 upstream = api in $REGION (asia-south1); v1 upstream = backend-us in
-          # $GATEWAY_REGION (us-central1, same region as the gateway → fast).
+          # Both v1 and v2 upstreams live in $REGION (asia-south1); the gateway
+          # itself stays in $GATEWAY_REGION (us-central1) for the domain mapping.
+          # The single cross-region hop is invisible at current traffic levels.
           API_URL=$(gcloud run services describe "$API_SVC" --region "$REGION" --format='value(status.url)')
           test -n "$API_URL" || { echo "::error::api service $API_SVC not found — deploy api first"; exit 1; }
-          V1_URL=$(gcloud run services describe "$V1_BACKEND_SVC" --region "$GATEWAY_REGION" --format='value(status.url)' 2>/dev/null || true)
+          V1_URL=$(gcloud run services describe "$V1_BACKEND_SVC" --region "$REGION" --format='value(status.url)' 2>/dev/null || true)
           # ml upstream (handwriting OCR at /api/ocr/*). Non-fatal if absent — the
           # gateway just won't route OCR until ml is deployed.
           ML_URL=$(gcloud run services describe "$ML_SVC" --region "$REGION" --format='value(status.url)' 2>/dev/null || true)
